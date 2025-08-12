@@ -137,6 +137,33 @@ class SMSHostApp:
 app_instance = SMSHostApp()
 
 
+# FastAPI startup event
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the application on startup"""
+    try:
+        logger.info("Starting SMS Host Application...")
+        if not await app_instance.initialize():
+            logger.error("Failed to initialize application")
+            raise Exception("Application initialization failed")
+        logger.info("SMS Host Application started successfully")
+    except Exception as e:
+        logger.error(f"Startup failed: {e}")
+        raise
+
+
+# FastAPI shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    try:
+        logger.info("Shutting down SMS Host Application...")
+        await app_instance.cleanup()
+        logger.info("Shutdown completed")
+    except Exception as e:
+        logger.error(f"Shutdown error: {e}")
+
+
 # FastAPI Routes
 
 @app.get("/", response_class=HTMLResponse)
