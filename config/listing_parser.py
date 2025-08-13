@@ -69,204 +69,137 @@ class RAGPropertyParser:
     
     def _setup_vector_database(self):
         """Setup or load the vector database"""
+        # Reset any existing ChromaDB instances first
+        self._reset_chromadb_instances()
+        
+        # Create persist directory if it doesn't exist
+        self.persist_directory.mkdir(exist_ok=True, parents=True)
+        
+        # Try to set permissions, but don't fail if we can't
         try:
-            # Reset any existing ChromaDB instances first
-            self._reset_chromadb_instances()
+            self.persist_directory.chmod(0o755)
+        except PermissionError:
+            pass
+        
+        # Check if vector database already exists
+        if (self.persist_directory / "chroma.sqlite3").exists():
+            logger.info("Loading existing vector database...")
+            self.vector_store = Chroma(
+                persist_directory=str(self.persist_directory),
+                embedding_function=self.embeddings
+            )
+        else:
+            logger.info("Creating new vector database...")
+            self._create_vector_database()
             
-            # Create persist directory if it doesn't exist
-            self.persist_directory.mkdir(exist_ok=True, parents=True)
-            
-            # Try to set permissions, but don't fail if we can't (e.g., in Docker volumes)
-            try:
-                self.persist_directory.chmod(0o755)
-            except PermissionError:
-                pass
-            
-            # Check if vector database already exists
-            if (self.persist_directory / "chroma.sqlite3").exists():
-                logger.info("Loading existing vector database...")
-                self.vector_store = Chroma(
-                    persist_directory=str(self.persist_directory),
-                    embedding_function=self.embeddings
-                )
-            else:
-                logger.info("Creating new vector database...")
-                self._create_vector_database()
-                
-            logger.info("Vector database setup completed")
-            
-        except Exception as e:
-            logger.error(f"Error setting up vector database: {e}")
-            raise
+        logger.info("Vector database setup completed")
     
     def _create_vector_database(self):
         """Create and populate the vector database"""
-        try:
-            # Collect all text files from data directory
-            documents = self._collect_documents()
-            
-            if not documents:
-                logger.warning("No documents found in data directory")
-                # Create default document
-                documents = [self._create_default_document()]
-            
-            # Split documents into chunks
-            chunks = self.text_splitter.split_documents(documents)
-            logger.info(f"Created {len(chunks)} text chunks from {len(documents)} documents")
-            
-            # Ensure the persist directory is writable
-            self._ensure_directory_writable()
-            
-            # Try to create vector store with error handling
-            try:
-                # Clear any existing vector store first
-                if hasattr(self, 'vector_store') and self.vector_store:
-                    try:
-                        if hasattr(self.vector_store, '_client'):
-                            self.vector_store._client.close()
-                        self.vector_store = None
-                    except Exception:
-                        pass
-                
-                # Create new vector store
-                self.vector_store = Chroma.from_documents(
-                    documents=chunks,
-                    embedding=self.embeddings,
-                    persist_directory=str(self.persist_directory)
-                )
-                logger.info("Vector database created and persisted successfully")
-                
-            except Exception as e:
-                logger.error(f"Error creating ChromaDB: {e}")
-                logger.info("Trying alternative database creation approach...")
-                self._create_database_alternative(chunks)
-                
-        except Exception as e:
-            logger.error(f"Error in _create_vector_database: {e}")
-            raise
+        # Collect all text files from data directory
+        documents = self._collect_documents()
+        
+        if not documents:
+            logger.warning("No documents found in data directory")
+            documents = [self._create_default_document()]
+        
+        # Split documents into chunks
+        chunks = self.text_splitter.split_documents(documents)
+        logger.info(f"Created {len(chunks)} text chunks from {len(documents)} documents")
+        
+        # Ensure the persist directory is writable
+        self._ensure_directory_writable()
+        
+        # Clear any existing vector store first
+        if hasattr(self, 'vector_store') and self.vector_store:
+            if hasattr(self.vector_store, '_client'):
+                self.vector_store._client.close()
+            self.vector_store = None
+        
+        # Create new vector store
+        self.vector_store = Chroma.from_documents(
+            documents=chunks,
+            embedding=self.embeddings,
+            persist_directory=str(self.persist_directory)
+        )
+        logger.info("Vector database created and persisted successfully")
     
     def _ensure_directory_writable(self):
         """Ensure the database directory is writable"""
-        try:
-            # Test write access
-            test_file = self.persist_directory / ".write_test"
-            test_file.write_text("test")
-            test_file.unlink()
-            
-        except Exception:
-            # Try to fix permissions
-            try:
-                self.persist_directory.chmod(0o777)
-            except Exception:
-                # Try to create database in a different location
-                alt_path = Path("/tmp/vector_db")
-                alt_path.mkdir(exist_ok=True, parents=True)
-                alt_path.chmod(0o777)
-                self.persist_directory = alt_path
-                logger.warning(f"Using alternative database path: {alt_path}")
+        # Test write access
+        test_file = self.persist_directory / ".write_test"
+        test_file.write_text("test")
+        test_file.unlink()
+        
+        # If we get here, directory is writable
     
     def _create_database_alternative(self, chunks):
         """Alternative database creation method"""
-        try:
-            # First, try to clear any existing ChromaDB instances
-            if hasattr(self, 'vector_store') and self.vector_store:
-                try:
-                    # Close existing vector store
-                    if hasattr(self.vector_store, '_client'):
-                        self.vector_store._client.close()
-                    self.vector_store = None
-                except Exception:
-                    pass
-            
-            # Try to create a new ChromaDB instance with a unique path
-            import tempfile
-            import shutil
-            
-            # Create a temporary directory for the database
-            temp_db_path = Path(tempfile.mkdtemp(prefix="chroma_temp_"))
-            
-            try:
-                # Create vector store in temporary location first
-                temp_vector_store = Chroma.from_documents(
-                    documents=chunks,
-                    embedding=self.embeddings,
-                    persist_directory=str(temp_db_path)
-                )
-                
-                # Now copy the database files to the target location
-                if self.persist_directory.exists():
-                    # Remove existing files
-                    for file_path in self.persist_directory.iterdir():
-                        if file_path.is_file():
-                            file_path.unlink()
-                        elif file_path.is_dir():
-                            shutil.rmtree(file_path)
-                
-                # Copy database files from temp to target
-                for item in temp_db_path.iterdir():
-                    if item.is_file():
-                        shutil.copy2(item, self.persist_directory)
-                    elif item.is_dir():
-                        shutil.copytree(item, self.persist_directory / item.name)
-                
-                # Now create the vector store in the target location
-                self.vector_store = Chroma(
-                    persist_directory=str(self.persist_directory),
-                    embedding_function=self.embeddings
-                )
-                
-                logger.info("Database created using alternative method")
-                
-                # Clean up temporary directory
-                shutil.rmtree(temp_db_path)
-                
-            except Exception as e:
-                logger.error(f"Alternative method with file copying failed: {e}")
-                logger.info("Trying in-memory database as last resort...")
-                self._create_in_memory_database(chunks)
-                
-        except Exception as e:
-            logger.error(f"Alternative database creation also failed: {e}")
-            raise
+        # Clear any existing ChromaDB instances
+        if hasattr(self, 'vector_store') and self.vector_store:
+            if hasattr(self.vector_store, '_client'):
+                self.vector_store._client.close()
+            self.vector_store = None
+        
+        # Create a temporary directory for the database
+        import tempfile
+        import shutil
+        temp_db_path = Path(tempfile.mkdtemp(prefix="chroma_temp_"))
+        
+        # Create vector store in temporary location first
+        temp_vector_store = Chroma.from_documents(
+            documents=chunks,
+            embedding=self.embeddings,
+            persist_directory=str(temp_db_path)
+        )
+        
+        # Remove existing files from target location
+        if self.persist_directory.exists():
+            for file_path in self.persist_directory.iterdir():
+                if file_path.is_file():
+                    file_path.unlink()
+                elif file_path.is_dir():
+                    shutil.rmtree(file_path)
+        
+        # Copy database files from temp to target
+        for item in temp_db_path.iterdir():
+            if item.is_file():
+                shutil.copy2(item, self.persist_directory)
+            elif item.is_dir():
+                shutil.copytree(item, self.persist_directory / item.name)
+        
+        # Create the vector store in the target location
+        self.vector_store = Chroma(
+            persist_directory=str(self.persist_directory),
+            embedding_function=self.embeddings
+        )
+        
+        # Clean up temporary directory
+        shutil.rmtree(temp_db_path)
+        logger.info("Database created using alternative method")
     
     def _reset_chromadb_instances(self):
         """Reset any existing ChromaDB instances to avoid conflicts"""
-        try:
-            # Clear our vector store instance
-            if hasattr(self, 'vector_store') and self.vector_store:
-                try:
-                    if hasattr(self.vector_store, '_client'):
-                        self.vector_store._client.close()
-                    self.vector_store = None
-                except Exception:
-                    pass
-            
-            # Try to clear any global ChromaDB instances
-            try:
-                import chromadb
-                # Force ChromaDB to reset its internal state
-                if hasattr(chromadb, '_reset_client_cache'):
-                    chromadb._reset_client_cache()
-            except Exception:
-                pass
-                
-        except Exception:
-            pass
+        # Clear our vector store instance
+        if hasattr(self, 'vector_store') and self.vector_store:
+            if hasattr(self.vector_store, '_client'):
+                self.vector_store._client.close()
+            self.vector_store = None
+        
+        # Try to clear any global ChromaDB instances
+        import chromadb
+        if hasattr(chromadb, '_reset_client_cache'):
+            chromadb._reset_client_cache()
     
     def _create_in_memory_database(self, chunks):
         """Create an in-memory database as last resort"""
-        try:
-            # Create in-memory vector store
-            self.vector_store = Chroma.from_documents(
-                documents=chunks,
-                embedding=self.embeddings
-            )
-            
-            logger.warning("Created in-memory database - data will not persist between restarts")
-            
-        except Exception as e:
-            logger.error(f"Even in-memory database creation failed: {e}")
-            raise
+        # Create in-memory vector store
+        self.vector_store = Chroma.from_documents(
+            documents=chunks,
+            embedding=self.embeddings
+        )
+        
+        logger.warning("Created in-memory database - data will not persist between restarts")
     
     def _collect_documents(self) -> List[Document]:
         """Collect all text documents from the data directory"""
@@ -440,25 +373,20 @@ class RAGPropertyParser:
         """Refresh the vector database with current data files"""
         logger.info("Refreshing vector database...")
         
-        try:
-            # Remove existing database files but keep the directory
-            if self.persist_directory.exists():
-                # Remove only the database files, not the directory itself
-                for file_path in self.persist_directory.iterdir():
-                    if file_path.is_file():
-                        file_path.unlink()
-                    elif file_path.is_dir():
-                        import shutil
-                        shutil.rmtree(file_path)
-            
-            # Recreate database
-            self._setup_vector_database()
-            
-            logger.info("Vector database refreshed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error refreshing database: {e}")
-            raise
+        # Remove existing database files but keep the directory
+        if self.persist_directory.exists():
+            # Remove only the database files, not the directory itself
+            for file_path in self.persist_directory.iterdir():
+                if file_path.is_file():
+                    file_path.unlink()
+                elif file_path.is_dir():
+                    import shutil
+                    shutil.rmtree(file_path)
+        
+        # Recreate database
+        self._setup_vector_database()
+        
+        logger.info("Vector database refreshed successfully")
     
     def get_database_stats(self) -> Dict[str, Any]:
         """Get statistics about the vector database"""
