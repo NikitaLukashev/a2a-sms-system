@@ -1,217 +1,301 @@
 """
-Property Information Parser for SMS Host Protocol
-Reads plain text property information file and extracts structured information
+RAG-based Property Information Parser for SMS Host Protocol
+Uses LangChain and vector database for intelligent information retrieval
 """
 
 import os
-import re
+import logging
 from typing import Dict, List, Optional, Any
+from pathlib import Path
 
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain.schema import Document
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
 
-class PropertyInfoParser:
-    """Parses plain text property information for SMS hosting"""
+from .mistral_embeddings import MistralEmbeddings
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+class RAGPropertyParser:
+    """RAG-based property information parser using LangChain and vector database"""
     
-    def __init__(self, property_file_path: str = "data/airbnblisting.txt"):
-        self.property_file_path = property_file_path
-        self.property_data = {}
-        self._parse_property_file()
+    def __init__(self, data_directory: str = "data", persist_directory: str = "vector_db"):
+        self.data_directory = Path(data_directory)
+        self.persist_directory = Path(persist_directory)
+        self.vector_store = None
+        self.embeddings = None
+        self.text_splitter = None
+        
+        # Initialize components
+        self._initialize_components()
+        
+        # Load or create vector database
+        self._setup_vector_database()
     
-    def _parse_property_file(self):
-        """Parse the plain text property file"""
-        try:
-            if not os.path.exists(self.property_file_path):
-                raise FileNotFoundError(f"Property file not found: {self.property_file_path}")
+    def _initialize_components(self):
+        """Initialize LangChain components"""
+        # Initialize text splitter for chunking documents
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            length_function=len,
+            separators=["\n\n", "\n", ". ", " ", ""]
+        )
+        
+        # Initialize Mistral embeddings model
+        self.embeddings = MistralEmbeddings(
+            model="mistral-embed",
+            api_key=os.getenv("MISTRAL_API_KEY")
+        )
+        
+        logger.info("LangChain components initialized successfully with Mistral embeddings")
+    
+    def _setup_vector_database(self):
+        """Setup or load the vector database"""
+        # Create persist directory if it doesn't exist
+        self.persist_directory.mkdir(exist_ok=True)
+        
+        # Check if vector database already exists
+        if (self.persist_directory / "chroma.sqlite3").exists():
+            logger.info("Loading existing vector database...")
+            self.vector_store = Chroma(
+                persist_directory=str(self.persist_directory),
+                embedding_function=self.embeddings
+            )
+        else:
+            logger.info("Creating new vector database...")
+            self._create_vector_database()
             
-            with open(self.property_file_path, 'r', encoding='utf-8') as file:
+        logger.info("Vector database setup completed")
+    
+    def _create_vector_database(self):
+        """Create and populate the vector database"""
+        # Collect all text files from data directory
+        documents = self._collect_documents()
+        
+        if not documents:
+            logger.warning("No documents found in data directory")
+            # Create default document
+            documents = [self._create_default_document()]
+        
+        # Split documents into chunks
+        chunks = self.text_splitter.split_documents(documents)
+        logger.info(f"Created {len(chunks)} text chunks from {len(documents)} documents")
+        
+        # Create vector store
+        self.vector_store = Chroma.from_documents(
+            documents=chunks,
+            embedding=self.embeddings,
+            persist_directory=str(self.persist_directory)
+        )
+        
+        # Persist the database (Chroma 0.4.x automatically persists)
+        logger.info("Vector database created and persisted successfully")
+    
+    def _collect_documents(self) -> List[Document]:
+        """Collect all text documents from the data directory"""
+        documents = []
+        
+        # Get all text files from data directory
+        text_files = list(self.data_directory.glob("*.txt"))
+        
+        for file_path in text_files:
+            with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read()
-            
-            # Parse sections
-            self._parse_sections(content)
-            
-        except Exception as e:
-            print(f"Error parsing property file: {e}")
-            # Set default data if parsing fails
-            self.property_data = self._get_default_data()
-    
-    def _parse_sections(self, content: str):
-        """Parse content into sections"""
-        # Split content into sections based on headers
-        sections = re.split(r'\n([A-Z][A-Z\s&]+:)\n', content)
-        
-        current_section = None
-        current_content = []
-        
-        for i, section in enumerate(sections):
-            if i == 0:  # First section is usually content before first header
-                if section.strip():
-                    self.property_data["general"] = section.strip()
-                continue
-            
-            if re.match(r'^[A-Z][A-Z\s&]+:$', section):
-                # This is a header, save previous section if exists
-                if current_section and current_content:
-                    self.property_data[current_section] = '\n'.join(current_content).strip()
                 
-                # Start new section
-                current_section = section.rstrip(':').lower().replace(' ', '_')
-                current_content = []
-            else:
-                # This is content for current section
-                if current_section:
-                    current_content.append(section.strip())
+            # Create LangChain Document
+            doc = Document(
+                page_content=content,
+                metadata={
+                    "source": str(file_path),
+                    "filename": file_path.name,
+                    "file_type": "text"
+                }
+            )
+            documents.append(doc)
         
-        # Save last section
-        if current_section and current_content:
-            self.property_data[current_section] = '\n'.join(current_content).strip()
+        logger.info(f"Collected {len(documents)} documents from data directory")
+        return documents
     
-    def _get_default_data(self) -> Dict[str, str]:
-        """Get default property data if parsing fails"""
+    def _create_default_document(self) -> Document:
+        """Create a default document if no data files are found"""
+        default_content = """
+        PROPERTY NAME: Your Property
+        LOCATION: Your City, State
+        
+        CHECK-IN & CHECK-OUT:
+        Check-in time: 3:00 PM
+        Check-out time: 11:00 AM
+        
+        AMENITIES:
+        WiFi, Kitchen, Parking, Bathrooms, Bedrooms
+        
+        HOUSE RULES:
+        No smoking, No pets, Quiet hours 10 PM-8 AM
+        
+        WHAT'S INCLUDED:
+        Towels, linens, coffee, tea
+        
+        NEARBY ATTRACTIONS:
+        Restaurants, shopping, attractions
+        
+        CANCELLATION POLICY:
+        Flexible cancellation policy
+        """
+        
+        return Document(
+            page_content=default_content,
+            metadata={
+                "source": "default",
+                "filename": "default_property_info.txt",
+                "file_type": "text"
+            }
+        )
+    
+    def query_property_info(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+        """
+        Query the vector database for relevant property information
+        
+        Args:
+            query: Search query string
+            k: Number of results to return
+            
+        Returns:
+            List of relevant document chunks with metadata
+        """
+        if not self.vector_store:
+            logger.error("Vector store not initialized")
+            return []
+        
+        # Perform similarity search
+        results = self.vector_store.similarity_search_with_score(query, k=k)
+        
+        # Format results
+        formatted_results = []
+        for doc, score in results:
+            formatted_results.append({
+                "content": doc.page_content,
+                "metadata": doc.metadata,
+                "relevance_score": float(score),
+                "source": doc.metadata.get("source", "unknown")
+            })
+        
+        logger.info(f"Retrieved {len(formatted_results)} relevant chunks for query: '{query}'")
+        return formatted_results
+    
+    def get_property_summary(self) -> str:
+        """Get a summary of the property information"""
+        # Query for general property information
+        results = self.query_property_info("property name location amenities check-in check-out", k=5)
+        
+        if not results:
+            return "Property information not available"
+        
+        # Extract key information from results
+        summary_parts = []
+        
+        for result in results:
+            content = result["content"]
+            # Look for key information patterns
+            if "property" in content.lower() or "name" in content.lower():
+                summary_parts.append(f"🏠 {content.strip()}")
+            elif "location" in content.lower() or "metro" in content.lower():
+                summary_parts.append(f"📍 {content.strip()}")
+            elif "check" in content.lower() and ("pm" in content.lower() or "am" in content.lower()):
+                summary_parts.append(f"⏰ {content.strip()}")
+            elif "wifi" in content.lower() or "amenity" in content.lower():
+                summary_parts.append(f"✨ {content.strip()}")
+        
+        if summary_parts:
+            return "\n".join(summary_parts[:3])  # Limit to 3 key points
+        else:
+            return "🏠 Your Property\n📍 Location information available\n✨ Amenities and details provided"
+    
+    def get_specific_info(self, category: str) -> str:
+        """
+        Get specific information about a category
+        
+        Args:
+            category: The category to search for (e.g., 'wifi', 'check-in', 'parking')
+            
+        Returns:
+            Relevant information about the category
+        """
+        results = self.query_property_info(category, k=2)
+        
+        if not results:
+            return f"Information about {category} not found"
+        
+        # Return the most relevant result
+        return results[0]["content"].strip()
+    
+    def format_for_ai_context(self, query: str = None) -> str:
+        """
+        Format property data for AI context, optionally based on a specific query
+        
+        Args:
+            query: Optional specific query to focus the context
+            
+        Returns:
+            Formatted context for AI
+        """
+        if query:
+            # Get context specific to the query
+            results = self.query_property_info(query, k=3)
+            if results:
+                context_parts = [f"Relevant Property Information for '{query}':"]
+                for i, result in enumerate(results, 1):
+                    context_parts.append(f"{i}. {result['content'].strip()}")
+                return "\n\n".join(context_parts)
+        
+        # Get general property context
+        results = self.query_property_info("property overview amenities location", k=4)
+        
+        if not results:
+            return "Property information not available"
+        
+        context_parts = ["Property Information:"]
+        for i, result in enumerate(results, 1):
+            context_parts.append(f"{i}. {result['content'].strip()}")
+        
+        return "\n\n".join(context_parts)
+    
+    def refresh_database(self):
+        """Refresh the vector database with current data files"""
+        logger.info("Refreshing vector database...")
+        
+        # Remove existing database
+        import shutil
+        if self.persist_directory.exists():
+            shutil.rmtree(self.persist_directory)
+        
+        # Recreate database
+        self._setup_vector_database()
+        
+        logger.info("Vector database refreshed successfully")
+    
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get statistics about the vector database"""
+        if not self.vector_store:
+            return {"error": "Vector store not initialized"}
+        
+        # Get collection info
+        collection = self.vector_store._collection
+        count = collection.count()
+        
         return {
-            "property_name": "Your Property",
-            "location": "Your City, State",
-            "check_in_check_out": "Check-in: 3:00 PM, Check-out: 11:00 AM",
-            "amenities": "WiFi, Kitchen, Parking, Bathrooms, Bedrooms",
-            "house_rules": "No smoking, No pets, Quiet hours 10 PM-8 AM",
-            "whats_included": "Towels, linens, coffee, tea",
-            "nearby_attractions": "Restaurants, shopping, attractions",
-            "cancellation_policy": "Flexible cancellation policy"
+            "total_documents": count,
+            "data_directory": str(self.data_directory),
+            "persist_directory": str(self.persist_directory),
+            "embedding_model": "mistral-embed",
+            "chunk_size": 1000,
+            "chunk_overlap": 200,
+            "embedding_provider": "Mistral"
         }
-    
-    def get_property_info(self) -> Dict[str, str]:
-        """Get all property information"""
-        return self.property_data
-    
-    def get_section(self, section_name: str) -> Optional[str]:
-        """Get content from a specific section"""
-        # Try exact match first
-        if section_name in self.property_data:
-            return self.property_data[section_name]
-        
-        # Try partial matches
-        for key in self.property_data.keys():
-            if section_name.lower() in key.lower():
-                return self.property_data[key]
-        
-        return None
-    
-    def search_info(self, query: str) -> List[str]:
-        """Search for information matching a query"""
-        query_lower = query.lower()
-        results = []
-        
-        for section, content in self.property_data.items():
-            if query_lower in content.lower():
-                results.append(f"{section}: {content}")
-        
-        return results
-    
-    def get_checkin_info(self) -> str:
-        """Get check-in and check-out information"""
-        checkin_section = self.get_section("check_in_check_out")
-        if checkin_section:
-            return checkin_section
-        
-        # Fallback to searching
-        for section, content in self.property_data.items():
-            if "check" in section.lower() and ("time" in content.lower() or "pm" in content.lower() or "am" in content.lower()):
-                return content
-        
-        return "Check-in time: 3:00 PM, Check-out time: 11:00 AM"
-    
-    def get_amenities(self) -> str:
-        """Get amenities information"""
-        amenities_section = self.get_section("amenities")
-        if amenities_section:
-            return amenities_section
-        
-        # Fallback to searching
-        for section, content in self.property_data.items():
-            if "amenity" in section.lower() or "wifi" in content.lower() or "kitchen" in content.lower():
-                return content
-        
-        return "WiFi, Kitchen, Parking, Bathrooms, Bedrooms, Living room, Outdoor space"
-    
-    def get_house_rules(self) -> str:
-        """Get house rules information"""
-        rules_section = self.get_section("house_rules")
-        if rules_section:
-            return rules_section
-        
-        # Fallback to searching
-        for section, content in self.property_data.items():
-            if "rule" in section.lower() or "no smoking" in content.lower() or "no pets" in content.lower():
-                return content
-        
-        return "No smoking, No pets, No parties, Quiet hours 10 PM-8 AM, Maximum guests limit"
-    
-    def get_nearby_attractions(self) -> str:
-        """Get nearby attractions information"""
-        attractions_section = self.get_section("nearby_attractions")
-        if attractions_section:
-            return attractions_section
-        
-        # Fallback to searching
-        for section, content in self.property_data.items():
-            if "nearby" in section.lower() or "attraction" in section.lower() or "restaurant" in content.lower():
-                return content
-        
-        return "Restaurants, shopping centers, attractions, and public transportation nearby"
-    
-    def get_cancellation_policy(self) -> str:
-        """Get cancellation policy information"""
-        policy_section = self.get_section("cancellation_policy")
-        if policy_section:
-            return policy_section
-        
-        # Fallback to searching
-        for section, content in self.property_data.items():
-            if "cancellation" in section.lower() or "refund" in content.lower():
-                return content
-        
-        return "Flexible cancellation policy with full refund if cancelled 7+ days before arrival"
-    
-    def get_property_name(self) -> str:
-        """Get property name"""
-        name_section = self.get_section("property_name")
-        if name_section:
-            return name_section
-        
-        # Fallback to searching
-        for section, content in self.property_data.items():
-            if "name" in section.lower() and content.strip():
-                return content.strip()
-        
-        return "Your Property"
-    
-    def get_location(self) -> str:
-        """Get property location"""
-        location_section = self.get_section("location")
-        if location_section:
-            return location_section
-        
-        # Fallback to searching
-        for section, content in self.property_data.items():
-            if "location" in section.lower() and content.strip():
-                return content.strip()
-        
-        return "Your City, State"
-    
-    def format_for_ai_context(self) -> str:
-        """Format property data for AI context"""
-        context_parts = []
-        
-        # Add key information
-        context_parts.append(f"Property: {self.get_property_name()}")
-        context_parts.append(f"Location: {self.get_location()}")
-        context_parts.append(f"Check-in/Check-out: {self.get_checkin_info()}")
-        context_parts.append(f"Amenities: {self.get_amenities()}")
-        context_parts.append(f"House Rules: {self.get_house_rules()}")
-        context_parts.append(f"What's Included: {self.get_section('whats_included') or 'Fresh towels, linens, coffee, tea, local guidebooks'}")
-        context_parts.append(f"Nearby Attractions: {self.get_nearby_attractions()}")
-        context_parts.append(f"Cancellation Policy: {self.get_cancellation_policy()}")
-        
-        return "\n".join(context_parts)
 
 
 # Global instance
-property_parser = PropertyInfoParser()
+property_parser = RAGPropertyParser()
