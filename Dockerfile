@@ -19,6 +19,13 @@ RUN mkdir -p data
 # Create vector database directory with proper permissions
 RUN mkdir -p vector_db && chmod 755 vector_db
 
+# Create non-root user for better security and permissions
+RUN useradd --create-home --shell /bin/bash app && \
+    chown -R app:app /app
+
+# Switch to non-root user
+USER app
+
 # Expose port
 EXPOSE 8000
 

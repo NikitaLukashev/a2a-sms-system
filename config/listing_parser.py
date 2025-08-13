@@ -107,27 +107,110 @@ class RAGPropertyParser:
     
     def _create_vector_database(self):
         """Create and populate the vector database"""
-        # Collect all text files from data directory
-        documents = self._collect_documents()
-        
-        if not documents:
-            logger.warning("No documents found in data directory")
-            # Create default document
-            documents = [self._create_default_document()]
-        
-        # Split documents into chunks
-        chunks = self.text_splitter.split_documents(documents)
-        logger.info(f"Created {len(chunks)} text chunks from {len(documents)} documents")
-        
-        # Create vector store
-        self.vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=self.embeddings,
-            persist_directory=str(self.persist_directory)
-        )
-        
-        # Persist the database (Chroma 0.4.x automatically persists)
-        logger.info("Vector database created and persisted successfully")
+        try:
+            # Collect all text files from data directory
+            documents = self._collect_documents()
+            
+            if not documents:
+                logger.warning("No documents found in data directory")
+                # Create default document
+                documents = [self._create_default_document()]
+            
+            # Split documents into chunks
+            chunks = self.text_splitter.split_documents(documents)
+            logger.info(f"Created {len(chunks)} text chunks from {len(documents)} documents")
+            
+            # Ensure the persist directory is writable
+            self._ensure_directory_writable()
+            
+            # Try to create vector store with error handling
+            try:
+                self.vector_store = Chroma.from_documents(
+                    documents=chunks,
+                    embedding=self.embeddings,
+                    persist_directory=str(self.persist_directory)
+                )
+                logger.info("Vector database created and persisted successfully")
+                
+            except Exception as e:
+                logger.error(f"Error creating ChromaDB: {e}")
+                
+                # Try alternative approach - create in memory first
+                logger.info("Trying alternative database creation approach...")
+                self._create_database_alternative(chunks)
+                
+        except Exception as e:
+            logger.error(f"Error in _create_vector_database: {e}")
+            raise
+    
+    def _ensure_directory_writable(self):
+        """Ensure the database directory is writable"""
+        try:
+            # Test write access
+            test_file = self.persist_directory / ".write_test"
+            test_file.write_text("test")
+            test_file.unlink()
+            logger.info("Directory write access verified")
+            
+        except Exception as e:
+            logger.warning(f"Directory write test failed: {e}")
+            
+            # Try to fix permissions
+            try:
+                self.persist_directory.chmod(0o777)
+                logger.info("Attempted to fix directory permissions")
+            except Exception as perm_error:
+                logger.error(f"Could not fix directory permissions: {perm_error}")
+                
+                # Try to create database in a different location
+                alt_path = Path("/tmp/vector_db")
+                alt_path.mkdir(exist_ok=True, parents=True)
+                alt_path.chmod(0o777)
+                self.persist_directory = alt_path
+                logger.warning(f"Using alternative database path: {alt_path}")
+    
+    def _create_database_alternative(self, chunks):
+        """Alternative database creation method"""
+        try:
+            # Try creating with different ChromaDB settings
+            import chromadb
+            from chromadb.config import Settings
+            
+            # Create with more permissive settings
+            settings = Settings(
+                anonymized_telemetry=False,
+                allow_reset=True,
+                is_persistent=True
+            )
+            
+            # Create client with custom settings
+            client = chromadb.PersistentClient(
+                path=str(self.persist_directory),
+                settings=settings
+            )
+            
+            # Create collection manually
+            collection = client.create_collection(
+                name="property_info",
+                metadata={"description": "Property information database"}
+            )
+            
+            # Add documents
+            texts = [chunk.page_content for chunk in chunks]
+            metadatas = [chunk.metadata for chunk in chunks]
+            ids = [f"doc_{i}" for i in range(len(chunks))]
+            
+            collection.add(
+                documents=texts,
+                metadatas=metadatas,
+                ids=ids
+            )
+            
+            logger.info("Database created using alternative method")
+            
+        except Exception as e:
+            logger.error(f"Alternative database creation also failed: {e}")
+            raise
     
     def _collect_documents(self) -> List[Document]:
         """Collect all text documents from the data directory"""
