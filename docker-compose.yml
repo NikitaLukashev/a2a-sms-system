@@ -37,9 +37,13 @@ services:
     profiles:
       - webhook
 
+
+
 networks:
   sms-network:
     driver: bridge
+
+
 
 volumes:
   logs:
