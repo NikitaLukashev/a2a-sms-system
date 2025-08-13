@@ -22,9 +22,18 @@ logger = logging.getLogger(__name__)
 class RAGPropertyParser:
     """RAG-based property information parser using LangChain and vector database"""
     
-    def __init__(self, data_directory: str = "data", persist_directory: str = "vector_db"):
-        self.data_directory = Path(data_directory)
-        self.persist_directory = Path(persist_directory)
+    def __init__(self, data_directory: str = "data", persist_directory: str = None):
+        # Use absolute paths to avoid permission issues
+        self.data_directory = Path(data_directory).resolve()
+        
+        # Set persist directory to a subdirectory of the project root
+        if persist_directory is None:
+            # Get the project root directory (parent of config folder)
+            project_root = Path(__file__).parent.parent
+            self.persist_directory = project_root / "vector_db"
+        else:
+            self.persist_directory = Path(persist_directory).resolve()
+        
         self.vector_store = None
         self.embeddings = None
         self.text_splitter = None
@@ -55,21 +64,37 @@ class RAGPropertyParser:
     
     def _setup_vector_database(self):
         """Setup or load the vector database"""
-        # Create persist directory if it doesn't exist
-        self.persist_directory.mkdir(exist_ok=True)
-        
-        # Check if vector database already exists
-        if (self.persist_directory / "chroma.sqlite3").exists():
-            logger.info("Loading existing vector database...")
-            self.vector_store = Chroma(
-                persist_directory=str(self.persist_directory),
-                embedding_function=self.embeddings
-            )
-        else:
-            logger.info("Creating new vector database...")
-            self._create_vector_database()
+        try:
+            # Create persist directory if it doesn't exist
+            self.persist_directory.mkdir(exist_ok=True, parents=True)
             
-        logger.info("Vector database setup completed")
+            # Ensure the directory has proper permissions
+            self.persist_directory.chmod(0o755)
+            
+            logger.info(f"Vector database directory: {self.persist_directory}")
+            logger.info(f"Directory permissions: {oct(self.persist_directory.stat().st_mode)[-3:]}")
+            
+            # Check if vector database already exists
+            if (self.persist_directory / "chroma.sqlite3").exists():
+                logger.info("Loading existing vector database...")
+                self.vector_store = Chroma(
+                    persist_directory=str(self.persist_directory),
+                    embedding_function=self.embeddings
+                )
+            else:
+                logger.info("Creating new vector database...")
+                self._create_vector_database()
+                
+            logger.info("Vector database setup completed")
+            
+        except PermissionError as e:
+            logger.error(f"Permission error creating vector database: {e}")
+            logger.error(f"Directory: {self.persist_directory}")
+            logger.error(f"Current working directory: {Path.cwd()}")
+            raise
+        except Exception as e:
+            logger.error(f"Error setting up vector database: {e}")
+            raise
     
     def _create_vector_database(self):
         """Create and populate the vector database"""

@@ -1,3 +1,17 @@
 .env
 /logs
 __pycache__/
+vector_db/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.DS_Store
+*.log
