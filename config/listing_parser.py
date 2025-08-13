@@ -107,20 +107,44 @@ class RAGPropertyParser:
         chunks = self.text_splitter.split_documents(documents)
         logger.info(f"Created {len(chunks)} text chunks from {len(documents)} documents")
         
-        # Ensure the persist directory is writable
-        self._ensure_directory_writable()
-        
-        # Clear any existing vector store first
-        if hasattr(self, 'vector_store') and self.vector_store:
-            self.vector_store = None
-        
-        # Create new vector store
-        self.vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=self.embeddings,
-            persist_directory=str(self.persist_directory)
-        )
-        logger.info("Vector database created and persisted successfully")
+        # Try to create database in memory first, then persist
+        try:
+            # Create in-memory first to avoid permission issues
+            self.vector_store = Chroma.from_documents(
+                documents=chunks,
+                embedding=self.embeddings
+            )
+            
+            # Now try to persist to the target directory
+            if self.persist_directory.exists():
+                # Remove existing files
+                for file_path in self.persist_directory.iterdir():
+                    if file_path.is_file():
+                        file_path.unlink()
+                    elif file_path.is_dir():
+                        import shutil
+                        shutil.rmtree(file_path)
+            
+            # Create a new persistent instance
+            self.vector_store = Chroma.from_documents(
+                documents=chunks,
+                embedding=self.embeddings,
+                persist_directory=str(self.persist_directory)
+            )
+            
+            logger.info("Vector database created and persisted successfully")
+            
+        except Exception as e:
+            logger.error(f"Error creating persistent database: {e}")
+            logger.info("Falling back to in-memory database")
+            
+            # Fallback to in-memory only
+            self.vector_store = Chroma.from_documents(
+                documents=chunks,
+                embedding=self.embeddings
+            )
+            
+            logger.warning("Using in-memory database - data will not persist between restarts")
     
     def _ensure_directory_writable(self):
         """Ensure the database directory is writable"""
@@ -137,42 +161,28 @@ class RAGPropertyParser:
         if hasattr(self, 'vector_store') and self.vector_store:
             self.vector_store = None
         
-        # Create a temporary directory for the database
-        import tempfile
-        import shutil
-        temp_db_path = Path(tempfile.mkdtemp(prefix="chroma_temp_"))
+        # Try to create in memory first
+        try:
+            self.vector_store = Chroma.from_documents(
+                documents=chunks,
+                embedding=self.embeddings
+            )
+            logger.info("Database created using in-memory method")
+            
+        except Exception as e:
+            logger.error(f"Alternative method failed: {e}")
+            # Last resort: create without embeddings
+            self._create_simple_database(chunks)
+    
+    def _create_simple_database(self, chunks):
+        """Create a simple database without embeddings as last resort"""
+        # Create a basic document store
+        from langchain.schema import Document
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
         
-        # Create vector store in temporary location first
-        temp_vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=self.embeddings,
-            persist_directory=str(temp_db_path)
-        )
-        
-        # Remove existing files from target location
-        if self.persist_directory.exists():
-            for file_path in self.persist_directory.iterdir():
-                if file_path.is_file():
-                    file_path.unlink()
-                elif file_path.is_dir():
-                    shutil.rmtree(file_path)
-        
-        # Copy database files from temp to target
-        for item in temp_db_path.iterdir():
-            if item.is_file():
-                shutil.copy2(item, self.persist_directory)
-            elif item.is_dir():
-                shutil.copytree(item, self.persist_directory / item.name)
-        
-        # Create the vector store in the target location
-        self.vector_store = Chroma(
-            persist_directory=str(self.persist_directory),
-            embedding_function=self.embeddings
-        )
-        
-        # Clean up temporary directory
-        shutil.rmtree(temp_db_path)
-        logger.info("Database created using alternative method")
+        # Store chunks in memory
+        self.documents = chunks
+        logger.warning("Created simple document store - no vector search available")
     
     def _reset_chromadb_instances(self):
         """Reset any existing ChromaDB instances to avoid conflicts"""
@@ -266,25 +276,49 @@ class RAGPropertyParser:
         Returns:
             List of relevant document chunks with metadata
         """
-        if not self.vector_store:
-            logger.error("Vector store not initialized")
-            return []
+        # Try vector store first
+        if self.vector_store:
+            try:
+                # Perform similarity search
+                results = self.vector_store.similarity_search_with_score(query, k=k)
+                
+                # Format results
+                formatted_results = []
+                for doc, score in results:
+                    formatted_results.append({
+                        "content": doc.page_content,
+                        "metadata": doc.metadata,
+                        "relevance_score": float(score),
+                        "source": doc.metadata.get("source", "unknown")
+                    })
+                
+                logger.info(f"Retrieved {len(formatted_results)} relevant chunks for query: '{query}'")
+                return formatted_results
+                
+            except Exception as e:
+                logger.warning(f"Vector search failed: {e}, falling back to simple search")
         
-        # Perform similarity search
-        results = self.vector_store.similarity_search_with_score(query, k=k)
+        # Fallback to simple document search
+        if hasattr(self, 'documents') and self.documents:
+            # Simple keyword-based search
+            query_lower = query.lower()
+            relevant_docs = []
+            
+            for doc in self.documents:
+                content_lower = doc.page_content.lower()
+                if query_lower in content_lower:
+                    relevant_docs.append({
+                        "content": doc.page_content,
+                        "metadata": doc.metadata,
+                        "relevance_score": 0.5,  # Default score for simple search
+                        "source": doc.metadata.get("source", "unknown")
+                    })
+            
+            # Return top k results
+            return relevant_docs[:k]
         
-        # Format results
-        formatted_results = []
-        for doc, score in results:
-            formatted_results.append({
-                "content": doc.page_content,
-                "metadata": doc.metadata,
-                "relevance_score": float(score),
-                "source": doc.metadata.get("source", "unknown")
-            })
-        
-        logger.info(f"Retrieved {len(formatted_results)} relevant chunks for query: '{query}'")
-        return formatted_results
+        logger.error("No search method available")
+        return []
     
     def get_property_summary(self) -> str:
         """Get a summary of the property information"""
