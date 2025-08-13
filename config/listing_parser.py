@@ -79,11 +79,8 @@ class RAGPropertyParser:
             # Try to set permissions, but don't fail if we can't (e.g., in Docker volumes)
             try:
                 self.persist_directory.chmod(0o755)
-                logger.info(f"Directory permissions set: {oct(self.persist_directory.stat().st_mode)[-3:]}")
             except PermissionError:
-                logger.warning(f"Could not set permissions on {self.persist_directory} (this is normal in Docker volumes)")
-            
-            logger.info(f"Vector database directory: {self.persist_directory}")
+                pass
             
             # Check if vector database already exists
             if (self.persist_directory / "chroma.sqlite3").exists():
@@ -98,12 +95,6 @@ class RAGPropertyParser:
                 
             logger.info("Vector database setup completed")
             
-        except PermissionError as e:
-            logger.error(f"Permission error creating vector database: {e}")
-            logger.error(f"Directory: {self.persist_directory}")
-            logger.error(f"Current working directory: {Path.cwd()}")
-            logger.error("This might be a Docker volume permission issue. Check volume mounting.")
-            raise
         except Exception as e:
             logger.error(f"Error setting up vector database: {e}")
             raise
@@ -134,9 +125,8 @@ class RAGPropertyParser:
                         if hasattr(self.vector_store, '_client'):
                             self.vector_store._client.close()
                         self.vector_store = None
-                        logger.info("Cleared existing vector store instance")
-                    except Exception as e:
-                        logger.warning(f"Could not clear existing vector store: {e}")
+                    except Exception:
+                        pass
                 
                 # Create new vector store
                 self.vector_store = Chroma.from_documents(
@@ -148,8 +138,6 @@ class RAGPropertyParser:
                 
             except Exception as e:
                 logger.error(f"Error creating ChromaDB: {e}")
-                
-                # Try alternative approach - create in memory first
                 logger.info("Trying alternative database creation approach...")
                 self._create_database_alternative(chunks)
                 
@@ -164,18 +152,12 @@ class RAGPropertyParser:
             test_file = self.persist_directory / ".write_test"
             test_file.write_text("test")
             test_file.unlink()
-            logger.info("Directory write access verified")
             
-        except Exception as e:
-            logger.warning(f"Directory write test failed: {e}")
-            
+        except Exception:
             # Try to fix permissions
             try:
                 self.persist_directory.chmod(0o777)
-                logger.info("Attempted to fix directory permissions")
-            except Exception as perm_error:
-                logger.error(f"Could not fix directory permissions: {perm_error}")
-                
+            except Exception:
                 # Try to create database in a different location
                 alt_path = Path("/tmp/vector_db")
                 alt_path.mkdir(exist_ok=True, parents=True)
@@ -193,9 +175,8 @@ class RAGPropertyParser:
                     if hasattr(self.vector_store, '_client'):
                         self.vector_store._client.close()
                     self.vector_store = None
-                    logger.info("Cleared existing vector store instance")
-                except Exception as e:
-                    logger.warning(f"Could not clear existing vector store: {e}")
+                except Exception:
+                    pass
             
             # Try to create a new ChromaDB instance with a unique path
             import tempfile
@@ -203,7 +184,6 @@ class RAGPropertyParser:
             
             # Create a temporary directory for the database
             temp_db_path = Path(tempfile.mkdtemp(prefix="chroma_temp_"))
-            logger.info(f"Using temporary database path: {temp_db_path}")
             
             try:
                 # Create vector store in temporary location first
@@ -235,15 +215,13 @@ class RAGPropertyParser:
                     embedding_function=self.embeddings
                 )
                 
-                logger.info("Database created using alternative method with file copying")
+                logger.info("Database created using alternative method")
                 
                 # Clean up temporary directory
                 shutil.rmtree(temp_db_path)
                 
             except Exception as e:
                 logger.error(f"Alternative method with file copying failed: {e}")
-                
-                # Last resort: try to create in memory only
                 logger.info("Trying in-memory database as last resort...")
                 self._create_in_memory_database(chunks)
                 
@@ -260,9 +238,8 @@ class RAGPropertyParser:
                     if hasattr(self.vector_store, '_client'):
                         self.vector_store._client.close()
                     self.vector_store = None
-                    logger.info("Cleared existing vector store instance")
-                except Exception as e:
-                    logger.warning(f"Could not clear existing vector store: {e}")
+                except Exception:
+                    pass
             
             # Try to clear any global ChromaDB instances
             try:
@@ -270,12 +247,11 @@ class RAGPropertyParser:
                 # Force ChromaDB to reset its internal state
                 if hasattr(chromadb, '_reset_client_cache'):
                     chromadb._reset_client_cache()
-                    logger.info("Reset ChromaDB client cache")
-            except Exception as e:
-                logger.warning(f"Could not reset ChromaDB client cache: {e}")
+            except Exception:
+                pass
                 
-        except Exception as e:
-            logger.warning(f"Error during ChromaDB instance reset: {e}")
+        except Exception:
+            pass
     
     def _create_in_memory_database(self, chunks):
         """Create an in-memory database as last resort"""
@@ -471,15 +447,9 @@ class RAGPropertyParser:
                 for file_path in self.persist_directory.iterdir():
                     if file_path.is_file():
                         file_path.unlink()
-                        logger.info(f"Removed database file: {file_path}")
                     elif file_path.is_dir():
                         import shutil
                         shutil.rmtree(file_path)
-                        logger.info(f"Removed database subdirectory: {file_path}")
-                
-                logger.info("Existing database files removed")
-            else:
-                logger.info("No existing database directory found")
             
             # Recreate database
             self._setup_vector_database()
