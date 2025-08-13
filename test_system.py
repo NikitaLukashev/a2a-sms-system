@@ -15,77 +15,62 @@ def test_property_parser():
     """Test the property parser functionality"""
     print("🧪 Testing Property Parser...")
     
-    try:
-        from config.listing_parser import property_parser
-        
-        # Test basic functionality
-        property_name = property_parser.get_property_name()
-        location = property_parser.get_location()
-        checkin_info = property_parser.get_checkin_info()
-        amenities = property_parser.get_amenities()
-        
-        print(f"✓ Property Name: {property_name}")
-        print(f"✓ Location: {location}")
-        print(f"✓ Check-in Info: {checkin_info}")
-        print(f"✓ Amenities: {amenities}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Property Parser Test Failed: {e}")
-        return False
+    from config.listing_parser import property_parser
+    
+    # Test basic functionality
+    property_name = property_parser.get_property_name()
+    location = property_parser.get_location()
+    checkin_info = property_parser.get_checkin_info()
+    amenities = property_parser.get_amenities()
+    
+    print(f"✓ Property Name: {property_name}")
+    print(f"✓ Location: {location}")
+    print(f"✓ Check-in Info: {checkin_info}")
+    print(f"✓ Amenities: {amenities}")
+    
+    return True
 
 def test_ai_generator():
     """Test the AI response generator"""
     print("\n🤖 Testing AI Response Generator (Mistral Large)...")
     
-    try:
-        from ai_response_generator import ai_generator
-        
-        # Test response generation
-        test_questions = [
-            "Do you have WiFi?",
-            "What time is check-in?",
-            "Is parking included?"
-        ]
-        
-        for question in test_questions:
-            response = ai_generator.generate_response(question, "Test Guest")
-            print(f"✓ Q: {question}")
-            print(f"  A: {response}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ AI Generator Test Failed: {e}")
-        return False
+    from ai_response_generator import ai_generator
+    
+    # Test response generation
+    test_questions = [
+        "Do you have WiFi?",
+        "What time is check-in?",
+        "Is parking included?"
+    ]
+    
+    for question in test_questions:
+        response = ai_generator.generate_response(question, "Test Guest")
+        print(f"✓ Q: {question}")
+        print(f"  A: {response}")
+    
+    return True
 
 def test_protocol():
     """Test the main protocol"""
     print("\n🔧 Testing SMS Host Protocol...")
     
-    try:
-        from a2a_protocol import sms_protocol
-        
-        # Test protocol status
-        status = sms_protocol.get_protocol_status()
-        print(f"✓ Protocol ID: {status['protocol_id']}")
-        print(f"✓ Agent ID: {status['agent_id']}")
-        print(f"✓ Status: {status['status']}")
-        print(f"✓ AI Model: {status['ai_model']}")
-        print(f"✓ AI Provider: {status['ai_provider']}")
-        
-        # Test message processing (without SMS)
-        test_message = "Do you have WiFi?"
-        response = sms_protocol.process_guest_message(test_message)
-        print(f"✓ Test Message: {test_message}")
-        print(f"✓ Response: {response}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Protocol Test Failed: {e}")
-        return False
+    from a2a_protocol import sms_protocol
+    
+    # Test protocol status
+    status = sms_protocol.get_protocol_status()
+    print(f"✓ Protocol ID: {status['protocol_id']}")
+    print(f"✓ Agent ID: {status['agent_id']}")
+    print(f"✓ Status: {status['status']}")
+    print(f"✓ AI Model: {status['ai_model']}")
+    print(f"✓ AI Provider: {status['ai_provider']}")
+    
+    # Test message processing (without SMS)
+    test_message = "Do you have WiFi?"
+    response = sms_protocol.process_guest_message(test_message)
+    print(f"✓ Test Message: {test_message}")
+    print(f"✓ Response: {response}")
+    
+    return True
 
 def test_environment():
     """Test environment configuration"""
@@ -126,12 +111,8 @@ def main():
     
     for test_name, test_func in tests:
         print(f"\n{'='*20} {test_name} {'='*20}")
-        try:
-            success = test_func()
-            results.append((test_name, success))
-        except Exception as e:
-            print(f"❌ {test_name} Test Crashed: {e}")
-            results.append((test_name, False))
+        success = test_func()
+        results.append((test_name, success))
     
     # Summary
     print("\n" + "="*60)
@@ -158,12 +139,5 @@ def main():
         return 1
 
 if __name__ == "__main__":
-    try:
-        exit_code = main()
-        sys.exit(exit_code)
-    except KeyboardInterrupt:
-        print("\n\n⚠️  Test interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n\n❌ Test suite crashed: {e}")
-        sys.exit(1)
+    exit_code = main()
+    sys.exit(exit_code)

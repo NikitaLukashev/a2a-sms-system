@@ -16,6 +16,8 @@ from fastapi.responses import HTMLResponse
 import uvicorn
 
 from a2a_protocol import sms_protocol
+from ai_response_generator import ai_generator
+from sms_handler import sms_handler
 
 # Load environment variables
 load_dotenv()
@@ -59,24 +61,19 @@ class SMSHostApp:
     
     async def initialize(self) -> bool:
         """Initialize the application"""
-        try:
-            logger.info("Initializing SMS Host Application...")
-            
-            # Check environment configuration
-            if not self._validate_environment():
-                return False
-            
-            # Start the protocol
-            if not await self.protocol.start():
-                logger.error("Failed to start protocol")
-                return False
-            
-            logger.info("Application initialized successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize application: {e}")
+        logger.info("Initializing SMS Host Application...")
+        
+        # Check environment configuration
+        if not self._validate_environment():
             return False
+        
+        # Start the protocol
+        if not await self.protocol.start():
+            logger.error("Failed to start protocol")
+            return False
+        
+        logger.info("Application initialized successfully")
+        return True
     
     def _validate_environment(self) -> bool:
         """Validate environment configuration"""
@@ -104,33 +101,23 @@ class SMSHostApp:
     
     async def run(self):
         """Run the main application loop"""
-        try:
-            self.running = True
-            
-            # Keep the application running
-            while self.running:
-                await asyncio.sleep(1)
-            
-        except asyncio.CancelledError:
-            logger.info("Application run loop cancelled")
-        except Exception as e:
-            logger.error(f"Error in application run loop: {e}")
-        finally:
-            await self.cleanup()
+        self.running = True
+        
+        # Keep the application running
+        while self.running:
+            await asyncio.sleep(1)
+        
+        await self.cleanup()
     
     async def cleanup(self):
         """Cleanup resources"""
-        try:
-            logger.info("Cleaning up application...")
-            
-            # Stop protocol
-            if self.protocol:
-                await self.protocol.stop()
-            
-            logger.info("Cleanup completed")
-            
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
+        logger.info("Cleaning up application...")
+        
+        # Stop protocol
+        if self.protocol:
+            await self.protocol.stop()
+        
+        logger.info("Cleanup completed")
 
 
 # Global app instance
@@ -141,27 +128,20 @@ app_instance = SMSHostApp()
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup"""
-    try:
-        logger.info("Starting SMS Host Application...")
-        if not await app_instance.initialize():
-            logger.error("Failed to initialize application")
-            raise Exception("Application initialization failed")
-        logger.info("SMS Host Application started successfully")
-    except Exception as e:
-        logger.error(f"Startup failed: {e}")
-        raise
+    logger.info("Starting SMS Host Application...")
+    if not await app_instance.initialize():
+        logger.error("Failed to initialize application")
+        raise Exception("Application initialization failed")
+    logger.info("SMS Host Application started successfully")
 
 
 # FastAPI shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    try:
-        logger.info("Shutting down SMS Host Application...")
-        await app_instance.cleanup()
-        logger.info("Shutdown completed")
-    except Exception as e:
-        logger.error(f"Shutdown error: {e}")
+    logger.info("Shutting down SMS Host Application...")
+    await app_instance.cleanup()
+    logger.info("Shutdown completed")
 
 
 # FastAPI Routes
@@ -195,23 +175,31 @@ async def root():
         <div class="container">
             <h1>🏠 SMS Host Protocol Dashboard</h1>
             
-            <div class="ai-info">
-                <h3>🤖 AI Assistant: Mistral Large</h3>
-                <p>This system uses Mistral AI's Large language model to generate intelligent, friendly responses to guest inquiries about your property.</p>
-            </div>
+                                    <div class="ai-info">
+                            <h3>🤖 AI Assistant: Mistral Large + RAG Architecture</h3>
+                            <p>This system uses Mistral AI's Large language model with RAG (Retrieval-Augmented Generation) for intelligent, context-aware responses to guest inquiries about your property.</p>
+                        </div>
+                        
+                        <div class="rag-info" style="background-color: #e8f5e8; border: 1px solid #4caf50; padding: 15px; margin: 15px 0; border-radius: 5px;">
+                            <h3>🧠 RAG System Status</h3>
+                            <div id="rag-stats">Loading RAG stats...</div>
+                        </div>
             
             <div class="info-box">
                 <h3>System Status</h3>
                 <div id="status">Loading...</div>
             </div>
             
-            <div class="info-box">
-                <h3>Quick Actions</h3>
-                <button class="button" onclick="sendWelcome()">Send Welcome Message</button>
-                <button class="button" onclick="sendSummary()">Send Property Summary</button>
-                <button class="button" onclick="testProtocol()">Test Protocol</button>
-                <button class="button" onclick="refreshStatus()">Refresh Status</button>
-            </div>
+                                    <div class="info-box">
+                            <h3>Quick Actions</h3>
+                            <button class="button" onclick="sendWelcome()">Send Welcome Message</button>
+                            <button class="button" onclick="sendSummary()">Send Property Summary</button>
+                            <button class="button" onclick="testProtocol()">Test Protocol</button>
+                            <button class="button" onclick="testSMS()">Test SMS</button>
+                            <button class="button" onclick="checkTwilioStatus()">Check Twilio Status</button>
+                            <button class="button" onclick="refreshStatus()">Refresh Status</button>
+                            <button class="button" onclick="refreshRAG()" style="background-color: #4caf50;">Refresh RAG Database</button>
+                        </div>
             
             <div class="test-form">
                 <h3>Test Message Processing</h3>
@@ -252,6 +240,8 @@ async def root():
                     
                     // Load conversations
                     loadConversations();
+                    // Load RAG stats
+                    loadRAGStats();
                     
                 } catch (error) {
                     console.error('Error loading status:', error);
@@ -349,6 +339,78 @@ async def root():
                     `;
                 }
             }
+            
+            async function refreshRAG() {
+                try {
+                    const response = await fetch('/refresh-rag', { method: 'POST' });
+                    const result = await response.json();
+                    alert(result.message);
+                    loadRAGStats();
+                } catch (error) {
+                    alert('Error refreshing RAG database');
+                }
+            }
+
+            async function testSMS() {
+                try {
+                    const response = await fetch('/test-sms', { method: 'POST' });
+                    const result = await response.json();
+                    alert(`SMS Test: ${result.message}\nPhone: ${result.phone}`);
+                    refreshStatus();
+                } catch (error) {
+                    alert('Error testing SMS functionality');
+                }
+            }
+
+            async function checkTwilioStatus() {
+                try {
+                    const response = await fetch('/twilio-status');
+                    const result = await response.json();
+                    
+                    let statusMessage = `Twilio Status:\n`;
+                    statusMessage += `✅ Configured: ${result.twilio_configured}\n`;
+                    statusMessage += `📱 Phone Number: ${result.twilio_phone_number}\n`;
+                    statusMessage += `👤 Guest Phone: ${result.guest_phone_number}\n`;
+                    statusMessage += `🔧 Client Valid: ${result.twilio_client_valid}\n`;
+                    
+                    if (result.error_message) {
+                        statusMessage += `❌ Error: ${result.error_message}\n`;
+                    }
+                    
+                    if (result.recommendations) {
+                        statusMessage += `\n💡 Recommendations:\n`;
+                        result.recommendations.forEach(rec => {
+                            statusMessage += `• ${rec}\n`;
+                        });
+                    }
+                    
+                    alert(statusMessage);
+                } catch (error) {
+                    alert('Error checking Twilio status');
+                }
+            }
+            
+            async function loadRAGStats() {
+                try {
+                    const response = await fetch('/rag-stats');
+                    const stats = await response.json();
+                    
+                    const ragStatsDiv = document.getElementById('rag-stats');
+                    if (stats.error) {
+                        ragStatsDiv.innerHTML = `<p style="color: red;">Error: ${stats.error}</p>`;
+                    } else {
+                        ragStatsDiv.innerHTML = `
+                            <p><strong>Total Documents:</strong> ${stats.total_documents || 'N/A'}</p>
+                            <p><strong>Embedding Model:</strong> ${stats.embedding_model || 'N/A'}</p>
+                            <p><strong>Embedding Provider:</strong> ${stats.embedding_provider || 'N/A'}</p>
+                            <p><strong>Chunk Size:</strong> ${stats.chunk_size || 'N/A'}</p>
+                            <p><strong>Data Directory:</strong> ${stats.data_directory || 'N/A'}</p>
+                        `;
+                    }
+                } catch (error) {
+                    document.getElementById('rag-stats').innerHTML = '<p style="color: red;">Error loading RAG stats</p>';
+                }
+            }
         </script>
     </body>
     </html>
@@ -371,47 +433,128 @@ async def get_conversations(limit: int = 10):
 @app.post("/send-welcome")
 async def send_welcome():
     """Send welcome message to guest"""
-    try:
-        success = sms_protocol.send_welcome_message()
-        if success:
-            return {"message": "Welcome message sent successfully!"}
-        else:
-            return {"message": "Failed to send welcome message"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    success = sms_protocol.send_welcome_message()
+    if success:
+        return {"message": "Welcome message sent successfully!"}
+    else:
+        return {"message": "Failed to send welcome message"}
 
 
 @app.post("/send-summary")
 async def send_summary():
     """Send property summary to guest"""
-    try:
-        success = sms_protocol.send_property_summary()
-        if success:
-            return {"message": "Property summary sent successfully!"}
-        else:
-            return {"message": "Failed to send property summary"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    success = sms_protocol.send_property_summary()
+    if success:
+        return {"message": "Property summary sent successfully!"}
+    else:
+        return {"message": "Failed to send property summary"}
 
 
 @app.post("/test")
 async def test_protocol():
     """Test the protocol functionality"""
-    try:
-        results = sms_protocol.test_protocol()
-        return {"message": "Protocol test completed", "results": results}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    results = sms_protocol.test_protocol()
+    return {"message": "Protocol test completed", "results": results}
+
+
+@app.get("/twilio-status")
+async def get_twilio_status():
+    """Get Twilio configuration status"""
+    # Get Twilio configuration
+    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    twilio_phone = os.getenv("TWILIO_PHONE_NUMBER")
+    guest_phone = os.getenv("GUEST_PHONE_NUMBER")
+    
+    # Check if credentials are set
+    has_sid = bool(twilio_sid)
+    has_phone = bool(twilio_phone)
+    has_guest = bool(guest_phone)
+    
+    # Try to validate Twilio client
+    twilio_valid = False
+    error_message = None
+    
+    if has_sid and has_phone:
+        try:
+            # Test Twilio client initialization
+            from twilio.rest import Client
+            client = Client(twilio_sid, os.getenv("TWILIO_AUTH_TOKEN"))
+            
+            # Try to get account info
+            account = client.api.accounts(twilio_sid).fetch()
+            twilio_valid = True
+            error_message = None
+            
+        except Exception as e:
+            twilio_valid = False
+            error_message = str(e)
+    
+    return {
+        "twilio_configured": has_sid and has_phone,
+        "account_sid_set": has_sid,
+        "phone_number_set": has_phone,
+        "guest_phone_set": has_guest,
+        "twilio_client_valid": twilio_valid,
+        "twilio_phone_number": twilio_phone,
+        "guest_phone_number": guest_phone,
+        "error_message": error_message,
+        "recommendations": [
+            "Ensure TWILIO_ACCOUNT_SID is set correctly",
+            "Verify TWILIO_PHONE_NUMBER is a valid Twilio number",
+            "Check if the phone number supports SMS",
+            "Verify your Twilio account has SMS capabilities"
+        ] if not twilio_valid else ["Twilio configuration looks good!"]
+    }
+
+
+@app.post("/test-sms")
+async def test_sms():
+    """Test SMS functionality by sending a test message"""
+    guest_phone = os.getenv("GUEST_PHONE_NUMBER")
+    if not guest_phone:
+        raise HTTPException(status_code=500, detail="GUEST_PHONE_NUMBER not configured")
+    
+    # Send a test SMS message
+    test_message = "🧪 This is a test SMS from your AI host assistant! The system is working perfectly! 🎉"
+    sms_handler._send_sms_response(guest_phone, test_message)
+    
+    return {"message": "Test SMS sent successfully", "phone": guest_phone}
 
 
 @app.post("/test-message")
 async def test_message(message: str = Form(...)):
-    """Test message processing"""
-    try:
-        response = sms_protocol.process_guest_message(message)
-        return {"message": "Message processed successfully", "response": response}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Test message processing and send SMS response"""
+    # Get the guest phone number from environment
+    guest_phone = os.getenv("GUEST_PHONE_NUMBER")
+    if not guest_phone:
+        raise HTTPException(status_code=500, detail="GUEST_PHONE_NUMBER not configured")
+    
+    # Process the message and send SMS response
+    response = sms_protocol.process_guest_message(message, from_number=guest_phone)
+    return {"message": "Message processed and SMS sent successfully", "response": response}
+
+
+@app.get("/rag-stats")
+async def get_rag_stats():
+    """Get RAG system statistics"""
+    return ai_generator.get_rag_stats()
+
+
+@app.post("/refresh-rag")
+async def refresh_rag_database():
+    """Refresh the RAG vector database"""
+    success = sms_protocol.refresh_rag_database()
+    if success:
+        return {"message": "RAG database refreshed successfully!"}
+    else:
+        return {"message": "Failed to refresh RAG database"}
+
+
+@app.get("/rag-insights/{query}")
+async def get_rag_insights(query: str):
+    """Get RAG insights for a specific query"""
+    insights = sms_protocol.get_rag_insights(query)
+    return insights
 
 
 @app.get("/health")
@@ -422,39 +565,25 @@ async def health_check():
 
 async def main():
     """Main application entry point"""
-    try:
-        # Initialize the application
-        if not await app_instance.initialize():
-            logger.error("Failed to initialize application")
-            return 1
-        
-        logger.info("SMS Host Protocol started successfully")
-        logger.info("Access the dashboard at: http://localhost:8000")
-        
-        # Start the application loop
-        await app_instance.run()
-        
-        return 0
-        
-    except KeyboardInterrupt:
-        logger.info("Application interrupted by user")
-        return 0
-    except Exception as e:
-        logger.error(f"Application error: {e}")
+    # Initialize the application
+    if not await app_instance.initialize():
+        logger.error("Failed to initialize application")
         return 1
+    
+    logger.info("SMS Host Protocol started successfully")
+    logger.info("Access the dashboard at: http://localhost:8000")
+    
+    # Start the application loop
+    await app_instance.run()
+    
+    return 0
 
 
 if __name__ == "__main__":
-    try:
-        # Run the FastAPI app with uvicorn
-        uvicorn.run(
-            "main:app",
-            host=os.getenv("HOST", "0.0.0.0"),
-            port=int(os.getenv("PORT", "8000")),
-            reload=False
-        )
-    except KeyboardInterrupt:
-        logger.info("Application interrupted")
-    except Exception as e:
-        logger.error(f"Failed to start application: {e}")
-        sys.exit(1)
+    # Run the FastAPI app with uvicorn
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8000")),
+        reload=False
+    )
