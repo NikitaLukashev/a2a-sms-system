@@ -94,6 +94,10 @@ class RAGPropertyParser:
             
         logger.info("Vector database setup completed")
     
+    def _is_docker_environment(self):
+        """Check if we're running in a Docker container"""
+        return os.path.exists('/.dockerenv') or os.getenv('PYTHONPATH') == '/app'
+    
     def _create_vector_database(self):
         """Create and populate the vector database"""
         # Collect all text files from data directory
@@ -107,44 +111,55 @@ class RAGPropertyParser:
         chunks = self.text_splitter.split_documents(documents)
         logger.info(f"Created {len(chunks)} text chunks from {len(documents)} documents")
         
-        # Try to create database in memory first, then persist
+        # Check if we're in Docker
+        is_docker = self._is_docker_environment()
+        if is_docker:
+            logger.info("Running in Docker - using in-memory database strategy")
+        
+        # Create in-memory database first (no persist_directory)
         try:
-            # Create in-memory first to avoid permission issues
+            logger.info("Creating in-memory database...")
             self.vector_store = Chroma.from_documents(
                 documents=chunks,
                 embedding=self.embeddings
+                # No persist_directory = in-memory only
             )
+            logger.info("In-memory database created successfully")
             
-            # Now try to persist to the target directory
-            if self.persist_directory.exists():
-                # Remove existing files
-                for file_path in self.persist_directory.iterdir():
-                    if file_path.is_file():
-                        file_path.unlink()
-                    elif file_path.is_dir():
-                        import shutil
-                        shutil.rmtree(file_path)
-            
-            # Create a new persistent instance
-            self.vector_store = Chroma.from_documents(
-                documents=chunks,
-                embedding=self.embeddings,
-                persist_directory=str(self.persist_directory)
-            )
-            
-            logger.info("Vector database created and persisted successfully")
+            # Only try persistent storage if not in Docker or if explicitly requested
+            if not is_docker:
+                try:
+                    if self.persist_directory.exists():
+                        # Remove existing files
+                        for file_path in self.persist_directory.iterdir():
+                            if file_path.is_file():
+                                file_path.unlink()
+                            elif file_path.is_dir():
+                                import shutil
+                                shutil.rmtree(file_path)
+                    
+                    # Try to create persistent version
+                    logger.info("Attempting to create persistent database...")
+                    persistent_store = Chroma.from_documents(
+                        documents=chunks,
+                        embedding=self.embeddings,
+                        persist_directory=str(self.persist_directory)
+                    )
+                    
+                    # If successful, replace the in-memory version
+                    self.vector_store = persistent_store
+                    logger.info("Persistent database created successfully")
+                    
+                except Exception as persist_error:
+                    logger.warning(f"Could not create persistent database: {persist_error}")
+                    logger.info("Keeping in-memory database - data will not persist between restarts")
+            else:
+                logger.info("Docker environment detected - keeping in-memory database")
             
         except Exception as e:
-            logger.error(f"Error creating persistent database: {e}")
-            logger.info("Falling back to in-memory database")
-            
-            # Fallback to in-memory only
-            self.vector_store = Chroma.from_documents(
-                documents=chunks,
-                embedding=self.embeddings
-            )
-            
-            logger.warning("Using in-memory database - data will not persist between restarts")
+            logger.error(f"Error creating in-memory database: {e}")
+            # Last resort: create simple document store
+            self._create_simple_database(chunks)
     
     def _ensure_directory_writable(self):
         """Ensure the database directory is writable"""
@@ -161,17 +176,19 @@ class RAGPropertyParser:
         if hasattr(self, 'vector_store') and self.vector_store:
             self.vector_store = None
         
-        # Try to create in memory first
+        # Try to create in memory only
         try:
+            logger.info("Creating in-memory database using alternative method...")
             self.vector_store = Chroma.from_documents(
                 documents=chunks,
                 embedding=self.embeddings
+                # No persist_directory = guaranteed in-memory
             )
-            logger.info("Database created using in-memory method")
+            logger.info("Alternative in-memory database created successfully")
             
         except Exception as e:
             logger.error(f"Alternative method failed: {e}")
-            # Last resort: create without embeddings
+            # Last resort: create simple document store
             self._create_simple_database(chunks)
     
     def _create_simple_database(self, chunks):
