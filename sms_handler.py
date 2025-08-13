@@ -46,42 +46,31 @@ class SMSHandler:
         Returns:
             TwiML response string
         """
-        try:
-            # Check if message is from the authorized guest number
-            if from_number != self.guest_phone:
-                logger.warning(f"Unauthorized SMS from {from_number}")
-                return self._generate_unauthorized_response()
-            
-            logger.info(f"Processing SMS from {from_number}: {message_body}")
-            
-            # Generate AI response
-            ai_response = ai_generator.generate_response(message_body, "Guest")
-            
-            # Send SMS response
-            self._send_sms_response(from_number, ai_response)
-            
-            # Return TwiML response for webhook
-            return self._generate_twiml_response(ai_response)
-            
-        except Exception as e:
-            logger.error(f"Error processing SMS: {e}")
-            error_response = "Sorry, I'm having trouble processing your message right now. Please try again later!"
-            self._send_sms_response(from_number, error_response)
-            return self._generate_twiml_response(error_response)
+        # Check if message is from the authorized guest number
+        if from_number != self.guest_phone:
+            logger.warning(f"Unauthorized SMS from {from_number}")
+            return self._generate_unauthorized_response()
+        
+        logger.info(f"Processing SMS from {from_number}: {message_body}")
+        
+        # Generate AI response
+        ai_response = ai_generator.generate_response(message_body, "Guest")
+        
+        # Send SMS response
+        self._send_sms_response(from_number, ai_response)
+        
+        # Return TwiML response for webhook
+        return self._generate_twiml_response(ai_response)
     
     def _send_sms_response(self, to_number: str, message: str):
         """Send SMS response to guest"""
-        try:
-            message_obj = self.client.messages.create(
-                body=message,
-                from_=self.twilio_phone,
-                to=to_number
-            )
-            
-            logger.info(f"SMS response sent successfully: {message_obj.sid}")
-            
-        except Exception as e:
-            logger.error(f"Error sending SMS response: {e}")
+        message_obj = self.client.messages.create(
+            body=message,
+            from_=self.twilio_phone,
+            to=to_number
+        )
+        
+        logger.info(f"SMS response sent successfully: {message_obj.sid}")
     
     def _generate_twiml_response(self, message: str) -> str:
         """Generate TwiML response for webhook"""
@@ -97,36 +86,23 @@ class SMSHandler:
     
     def send_welcome_message(self, guest_name: str = "Guest"):
         """Send a welcome message to the guest"""
-        try:
-            welcome_message = f"Hey {guest_name}! 👋 Welcome to our property! I'm your AI host assistant. Feel free to ask me anything about your stay - WiFi, check-in times, amenities, nearby attractions, or house rules. I'm here to help make your stay perfect! 🏠✨"
-            
-            self._send_sms_response(self.guest_phone, welcome_message)
-            logger.info("Welcome message sent successfully")
-            
-        except Exception as e:
-            logger.error(f"Error sending welcome message: {e}")
+        welcome_message = f"Hey {guest_name}! 👋 Welcome to our property! I'm your AI host assistant. Feel free to ask me anything about your stay - WiFi, check-in times, amenities, nearby attractions, or house rules. I'm here to help make your stay perfect! 🏠✨"
+        
+        self._send_sms_response(self.guest_phone, welcome_message)
+        logger.info("Welcome message sent successfully")
     
     def send_property_summary(self):
         """Send a summary of the property to the guest"""
-        try:
-            summary = ai_generator.get_property_summary()
-            self._send_sms_response(self.guest_phone, summary)
-            logger.info("Property summary sent successfully")
-            
-        except Exception as e:
-            logger.error(f"Error sending property summary: {e}")
+        summary = ai_generator.get_property_summary()
+        self._send_sms_response(self.guest_phone, summary)
+        logger.info("Property summary sent successfully")
     
     def test_sms_functionality(self):
         """Test SMS functionality with a test message"""
-        try:
-            test_message = "This is a test message from your AI host assistant! 🏠✨"
-            self._send_sms_response(self.guest_phone, test_message)
-            logger.info("Test SMS sent successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error sending test SMS: {e}")
-            return False
+        test_message = "This is a test message from your AI host assistant! 🏠✨"
+        self._send_sms_response(self.guest_phone, test_message)
+        logger.info("Test SMS sent successfully")
+        return True
     
     def get_sms_status(self) -> Dict[str, Any]:
         """Get SMS handler status and configuration"""

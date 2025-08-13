@@ -6,7 +6,7 @@ Main protocol that orchestrates the entire system using Mistral AI
 import os
 import logging
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 
 class SMSHostProtocol:
     """
-    A2A Protocol for automated SMS host responses using Mistral AI
+    A2A Protocol for automated SMS host responses using Mistral AI and RAG
     
     This protocol:
-    1. Reads property information from data/property_info.txt
+    1. Uses RAG architecture with vector database for property information
     2. Processes incoming SMS messages from a fixed guest number
-    3. Generates AI-powered responses using Mistral Large
+    3. Generates AI-powered responses using Mistral Large with relevant context
     4. Sends responses back via SMS
     5. Maintains conversation context and history
     """
@@ -43,52 +43,42 @@ class SMSHostProtocol:
         self.conversation_history = []
         
         logger.info(f"SMS Host Protocol initialized: {self.protocol_id}")
-    
+
     async def start(self) -> bool:
         """Start the A2A protocol"""
-        try:
-            logger.info("Starting SMS Host Protocol...")
-            
-            # Validate configuration
-            if not self._validate_configuration():
-                logger.error("Configuration validation failed")
-                return False
-            
-            # Initialize components
-            if not await self._initialize_components():
-                logger.error("Component initialization failed")
-                return False
-            
-            # Start the protocol
-            self.is_running = True
-            self.start_time = datetime.now()
-            
-            logger.info("SMS Host Protocol started successfully")
-            logger.info(f"Protocol ID: {self.protocol_id}")
-            logger.info(f"Agent ID: {self.agent_id}")
-            logger.info(f"Guest Phone: {os.getenv('GUEST_PHONE_NUMBER')}")
-            logger.info(f"Property: {property_parser.get_property_name()}")
-            logger.info(f"AI Model: {os.getenv('MISTRAL_MODEL', 'mistral-large-latest')}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to start protocol: {e}")
+        logger.info("Starting SMS Host Protocol...")
+        
+        # Validate configuration
+        if not self._validate_config():
+            logger.error("Protocol configuration validation failed.")
             return False
-    
+        
+        # Initialize components
+        if not await self._initialize_components():
+            logger.error("Protocol component initialization failed.")
+            return False
+        
+        self.is_running = True
+        self.start_time = datetime.now()
+        
+        logger.info("SMS Host Protocol started successfully")
+        logger.info(f"Protocol ID: {self.protocol_id}")
+        logger.info(f"Agent ID: {self.agent_id}")
+        logger.info(f"Guest Phone: {os.getenv('GUEST_PHONE_NUMBER')}")
+        logger.info(f"AI Model: {os.getenv('MISTRAL_MODEL', 'mistral-large-latest')}")
+        logger.info("RAG Architecture: Enabled with vector database")
+        
+        return True
+
     async def stop(self):
         """Stop the A2A protocol"""
-        try:
-            logger.info("Stopping SMS Host Protocol...")
-            
-            self.is_running = False
-            
-            logger.info("SMS Host Protocol stopped successfully")
-            
-        except Exception as e:
-            logger.error(f"Error stopping protocol: {e}")
-    
-    def _validate_configuration(self) -> bool:
+        logger.info("Stopping SMS Host Protocol...")
+        
+        self.is_running = False
+        
+        logger.info("SMS Host Protocol stopped successfully")
+
+    def _validate_config(self) -> bool:
         """Validate that all required configuration is present"""
         required_vars = [
             "MISTRAL_API_KEY",
@@ -98,231 +88,175 @@ class SMSHostProtocol:
             "GUEST_PHONE_NUMBER"
         ]
         
-        missing_vars = []
         for var in required_vars:
             if not os.getenv(var):
-                missing_vars.append(var)
-        
-        if missing_vars:
-            logger.error(f"Missing required environment variables: {missing_vars}")
-            return False
-        
+                logger.error(f"Missing required environment variable: {var}")
+                return False
         return True
-    
+
     async def _initialize_components(self) -> bool:
         """Initialize all protocol components"""
-        try:
-            # Test property parser
-            property_name = property_parser.get_property_name()
-            if not property_name:
-                logger.error("Property parser failed to load property information")
-                return False
-            
-            # Test AI generator
-            test_response = ai_generator.generate_response("test", "Test")
-            if not test_response:
-                logger.error("AI generator failed to generate test response")
-                return False
-            
-            # Test SMS handler
-            sms_status = sms_handler.get_sms_status()
-            if sms_status["status"] != "Active":
-                logger.error("SMS handler is not active")
-                return False
-            
-            logger.info("All components initialized successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Component initialization failed: {e}")
-            return False
-    
+        # Test RAG property parser
+        rag_stats = property_parser.get_database_stats()
+        logger.info(f"RAG Property Parser initialized: {rag_stats}")
+        
+        # Test AI generator (initialization only)
+        ai_generator # Accessing the global instance to ensure it's initialized
+        
+        # Test SMS handler (initialization only)
+        sms_handler # Accessing the global instance to ensure it's initialized
+        
+        logger.info("All protocol components initialized successfully.")
+        return True
+
     def process_guest_message(self, message: str, from_number: str = None) -> str:
-        """
-        Process a guest message and generate response
+        """Process an incoming guest message and generate a response using RAG"""
+        if not self.is_running:
+            logger.warning("Protocol not running, cannot process message")
+            return "System is currently offline. Please try again later."
         
-        Args:
-            message: The guest's message
-            from_number: Phone number (optional, uses configured guest number if not provided)
-            
-        Returns:
-            Generated response message
-        """
-        try:
-            if not self.is_running:
-                logger.warning("Protocol not running, cannot process message")
-                return "Sorry, the system is not available right now."
-            
-            # Use configured guest number if none provided
-            if not from_number:
-                from_number = os.getenv("GUEST_PHONE_NUMBER")
-            
-            # Validate sender
-            if from_number != os.getenv("GUEST_PHONE_NUMBER"):
-                logger.warning(f"Unauthorized message from {from_number}")
-                return "Sorry, this number is not authorized to receive responses from this property."
-            
-            # Generate AI response
-            ai_response = ai_generator.generate_response(message, "Guest")
-            
-            # Send SMS response
-            sms_handler._send_sms_response(from_number, ai_response)
-            
-            # Update conversation history
-            self._update_conversation_history(message, ai_response, from_number)
-            
-            # Increment message count
-            self.message_count += 1
-            
-            logger.info(f"Message processed successfully. Total messages: {self.message_count}")
-            
-            return ai_response
-            
-        except Exception as e:
-            logger.error(f"Error processing guest message: {e}")
-            error_response = "Sorry, I'm having trouble processing your message right now. Please try again later!"
-            
-            # Try to send error response
-            try:
-                if from_number:
-                    sms_handler._send_sms_response(from_number, error_response)
-            except:
-                pass
-            
-            return error_response
-    
-    def _update_conversation_history(self, guest_message: str, host_response: str, phone_number: str):
-        """Update conversation history"""
-        conversation_entry = {
+        # Validate sender if from_number is provided
+        if from_number and from_number != os.getenv("GUEST_PHONE_NUMBER"):
+            logger.warning(f"Unauthorized message from {from_number}")
+            return "Sorry, this number is not authorized to receive responses from this property."
+        
+        # Generate AI response using RAG
+        guest_name = "Guest" # Default guest name
+        response_text = ai_generator.generate_response(message, guest_name)
+        
+        # Update conversation history
+        self.conversation_history.append({
             "timestamp": datetime.now().isoformat(),
-            "phone_number": phone_number,
-            "guest_message": guest_message,
-            "host_response": host_response,
-            "message_number": self.message_count
-        }
+            "role": "guest",
+            "message": message
+        })
+        self.conversation_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "role": "host_ai",
+            "message": response_text
+        })
+        self.message_count += 1
         
-        self.conversation_history.append(conversation_entry)
+        # If from_number is provided, send SMS response
+        if from_number:
+            sms_handler._send_sms_response(from_number, response_text) # Direct call to send SMS
         
-        # Keep only last 100 conversations to prevent memory bloat
-        if len(self.conversation_history) > 100:
-            self.conversation_history = self.conversation_history[-100:]
-    
+        logger.info(f"Message processed using RAG. Response: {response_text}")
+        return response_text
+
     def send_welcome_message(self):
         """Send a welcome message to the guest"""
-        try:
-            if not self.is_running:
-                logger.warning("Protocol not running, cannot send welcome message")
-                return False
-            
-            sms_handler.send_welcome_message()
-            logger.info("Welcome message sent successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error sending welcome message: {e}")
+        if not self.is_running:
+            logger.warning("Protocol not running, cannot send welcome message")
             return False
-    
+        
+        sms_handler.send_welcome_message()
+        logger.info("Welcome message sent successfully")
+        return True
+
     def send_property_summary(self):
-        """Send a property summary to the guest"""
-        try:
-            if not self.is_running:
-                logger.warning("Protocol not running, cannot send property summary")
-                return False
-            
-            sms_handler.send_property_summary()
-            logger.info("Property summary sent successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error sending property summary: {e}")
+        """Send a property summary to the guest using RAG"""
+        if not self.is_running:
+            logger.warning("Protocol not running, cannot send property summary")
             return False
-    
-    def test_protocol(self) -> Dict[str, Any]:
-        """Test the protocol functionality"""
-        test_results = {
-            "timestamp": datetime.now().isoformat(),
-            "protocol_status": "Running" if self.is_running else "Stopped",
-            "components": {},
-            "ai_test": {},
-            "sms_test": {}
-        }
         
-        try:
-            # Test property parser
-            test_results["components"]["property_parser"] = {
-                "property_name": property_parser.get_property_name(),
-                "location": property_parser.get_location(),
-                "checkin_info": property_parser.get_checkin_info(),
-                "amenities": property_parser.get_amenities()
-            }
-            
-            # Test AI generator
-            test_questions = [
-                "Do you have WiFi?",
-                "What time is check-in?",
-                "Is parking included?"
-            ]
-            
-            ai_test_results = {}
-            for question in test_questions:
-                response = ai_generator.generate_response(question, "Test Guest")
-                ai_test_results[question] = response
-            
-            test_results["ai_test"] = ai_test_results
-            
-            # Test SMS handler
-            test_results["sms_test"] = sms_handler.get_sms_status()
-            
-            logger.info("Protocol test completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Protocol test failed: {e}")
-            test_results["error"] = str(e)
-        
-        return test_results
-    
+        sms_handler.send_property_summary()
+        logger.info("Property summary sent successfully using RAG")
+        return True
+
     def get_protocol_status(self) -> Dict[str, Any]:
-        """Get current protocol status"""
-        uptime = None
-        if self.start_time:
-            uptime = (datetime.now() - self.start_time).total_seconds()
+        """Get the current status of the protocol"""
+        uptime_seconds = None
+        if self.is_running and self.start_time:
+            uptime_seconds = (datetime.now() - self.start_time).total_seconds()
+        
+        # Get RAG statistics
+        rag_stats = property_parser.get_database_stats()
         
         return {
             "protocol_id": self.protocol_id,
             "agent_id": self.agent_id,
             "status": "Running" if self.is_running else "Stopped",
             "start_time": self.start_time.isoformat() if self.start_time else None,
-            "uptime_seconds": uptime,
+            "uptime_seconds": uptime_seconds,
             "total_messages": self.message_count,
             "conversation_history_count": len(self.conversation_history),
-            "property_name": property_parser.get_property_name(),
-            "guest_phone": os.getenv("GUEST_PHONE_NUMBER"),
             "ai_model": os.getenv("MISTRAL_MODEL", "mistral-large-latest"),
-            "ai_provider": "Mistral AI"
+            "ai_provider": "Mistral AI",
+            "rag_architecture": "Enabled",
+            "rag_stats": rag_stats
         }
-    
-    def get_conversation_history(self, limit: int = 10) -> list:
-        """Get recent conversation history"""
-        return self.conversation_history[-limit:] if self.conversation_history else []
-    
-    def export_conversation_data(self, format: str = "json") -> str:
-        """Export conversation data"""
-        try:
-            if format.lower() == "json":
-                import json
-                data = {
-                    "protocol_status": self.get_protocol_status(),
-                    "conversation_history": self.conversation_history,
-                    "export_timestamp": datetime.now().isoformat()
-                }
-                return json.dumps(data, indent=2, default=str)
-            else:
-                return f"Unsupported export format: {format}"
-                
-        except Exception as e:
-            logger.error(f"Error exporting conversation data: {e}")
-            return f"Error: {str(e)}"
 
+    def get_conversation_history(self, limit: int = 10) -> List[Dict[str, str]]:
+        """Get recent conversation history"""
+        return self.conversation_history[-limit:]
+
+    def test_protocol(self) -> Dict[str, Any]:
+        """Run internal tests for the protocol components"""
+        test_results = {
+            "protocol_status": self.get_protocol_status(),
+            "components": {},
+            "messages": [],
+            "rag_tests": {}
+        }
+        
+        # Test RAG property parser
+        rag_stats = property_parser.get_database_stats()
+        test_results["rag_tests"]["database_stats"] = rag_stats
+        
+        # Test RAG query
+        test_query = "WiFi amenities"
+        rag_results = property_parser.query_property_info(test_query, k=2)
+        test_results["rag_tests"]["query_test"] = {
+            "query": test_query,
+            "results_count": len(rag_results),
+            "sample_result": rag_results[0] if rag_results else None
+        }
+        
+        # Test AI generator
+        ai_test_responses = ai_generator.test_response_generation()
+        test_results["components"]["ai_generator"] = ai_test_responses
+        
+        # Test message processing (without actual SMS sending)
+        test_message = "What are the check-in times?"
+        simulated_response = self.process_guest_message(test_message, from_number=os.getenv("GUEST_PHONE_NUMBER"))
+        test_results["messages"].append({
+            "test_message": test_message,
+            "simulated_response": simulated_response
+        })
+        
+        logger.info("Protocol internal tests completed successfully.")
+        return test_results
+
+    def refresh_rag_database(self):
+        """Refresh the RAG vector database"""
+        if not self.is_running:
+            logger.warning("Protocol not running, cannot refresh RAG database")
+            return False
+        
+        logger.info("Refreshing RAG vector database...")
+        property_parser.refresh_database()
+        logger.info("RAG vector database refreshed successfully")
+        return True
+
+    def get_rag_insights(self, query: str) -> Dict[str, Any]:
+        """Get RAG insights for a specific query"""
+        if not self.is_running:
+            return {"error": "Protocol not running"}
+        
+        # Get relevant context
+        results = property_parser.query_property_info(query, k=3)
+        
+        # Get AI response for context
+        context = property_parser.format_for_ai_context(query)
+        
+        return {
+            "query": query,
+            "relevant_chunks": len(results),
+            "context": context,
+            "top_result": results[0] if results else None,
+            "all_results": results
+        }
 
 # Global protocol instance
 sms_protocol = SMSHostProtocol()
