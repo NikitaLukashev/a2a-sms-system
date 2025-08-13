@@ -73,11 +73,14 @@ class RAGPropertyParser:
             # Create persist directory if it doesn't exist
             self.persist_directory.mkdir(exist_ok=True, parents=True)
             
-            # Ensure the directory has proper permissions
-            self.persist_directory.chmod(0o755)
+            # Try to set permissions, but don't fail if we can't (e.g., in Docker volumes)
+            try:
+                self.persist_directory.chmod(0o755)
+                logger.info(f"Directory permissions set: {oct(self.persist_directory.stat().st_mode)[-3:]}")
+            except PermissionError:
+                logger.warning(f"Could not set permissions on {self.persist_directory} (this is normal in Docker volumes)")
             
             logger.info(f"Vector database directory: {self.persist_directory}")
-            logger.info(f"Directory permissions: {oct(self.persist_directory.stat().st_mode)[-3:]}")
             
             # Check if vector database already exists
             if (self.persist_directory / "chroma.sqlite3").exists():
@@ -96,6 +99,7 @@ class RAGPropertyParser:
             logger.error(f"Permission error creating vector database: {e}")
             logger.error(f"Directory: {self.persist_directory}")
             logger.error(f"Current working directory: {Path.cwd()}")
+            logger.error("This might be a Docker volume permission issue. Check volume mounting.")
             raise
         except Exception as e:
             logger.error(f"Error setting up vector database: {e}")
@@ -297,15 +301,31 @@ class RAGPropertyParser:
         """Refresh the vector database with current data files"""
         logger.info("Refreshing vector database...")
         
-        # Remove existing database
-        import shutil
-        if self.persist_directory.exists():
-            shutil.rmtree(self.persist_directory)
-        
-        # Recreate database
-        self._setup_vector_database()
-        
-        logger.info("Vector database refreshed successfully")
+        try:
+            # Remove existing database files but keep the directory
+            if self.persist_directory.exists():
+                # Remove only the database files, not the directory itself
+                for file_path in self.persist_directory.iterdir():
+                    if file_path.is_file():
+                        file_path.unlink()
+                        logger.info(f"Removed database file: {file_path}")
+                    elif file_path.is_dir():
+                        import shutil
+                        shutil.rmtree(file_path)
+                        logger.info(f"Removed database subdirectory: {file_path}")
+                
+                logger.info("Existing database files removed")
+            else:
+                logger.info("No existing database directory found")
+            
+            # Recreate database
+            self._setup_vector_database()
+            
+            logger.info("Vector database refreshed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error refreshing database: {e}")
+            raise
     
     def get_database_stats(self) -> Dict[str, Any]:
         """Get statistics about the vector database"""
