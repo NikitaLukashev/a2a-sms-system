@@ -165,6 +165,35 @@ test/
                        └──────────────────┘    └─────────────────┘
 ```
 
+## 📁 Project Structure
+
+```
+a2a/
+├── main.py                    # FastAPI application entry point
+├── controller/                # Core business logic controllers
+│   ├── __init__.py           # Controller package initialization
+│   ├── a2a_protocol.py       # Main protocol orchestrator
+│   ├── ai_response_generator.py # AI response generation
+│   └── sms_handler.py        # SMS handling and Twilio integration
+├── config/                    # Configuration and utilities
+│   ├── __init__.py           # Config package initialization
+│   ├── listing_parser.py     # RAG property parser
+│   └── mistral_embeddings.py # Mistral embeddings implementation
+├── test/                      # Test suite
+│   ├── __init__.py           # Test package initialization
+│   ├── run_all_tests.py      # Test runner (recommended)
+│   ├── test_basic.py         # Basic functionality tests
+│   ├── test_system.py        # System functionality tests
+│   └── test_rag.py           # RAG architecture tests
+├── data/                      # Property information files
+│   └── airbnblisting.txt     # Property details and rules
+├── logs/                      # Application logs
+├── docker-compose.yml         # Docker services configuration
+├── Dockerfile                 # Application container
+├── requirements.txt           # Python dependencies
+└── README.md                  # This documentation
+```
+
 ## 🔧 Configuration
 
 ### Environment Variables

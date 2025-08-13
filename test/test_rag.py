@@ -63,7 +63,7 @@ def test_ai_generator_with_rag():
     print("\n🤖 Testing AI Response Generator with RAG (Mistral)")
     print("=" * 60)
     
-    from ai_response_generator import ai_generator
+    from controller.ai_response_generator import ai_generator
     
     print("✅ AI Response Generator imported successfully")
     

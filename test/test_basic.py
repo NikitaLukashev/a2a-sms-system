@@ -41,9 +41,9 @@ def test_file_structure():
     # Check if main files exist
     main_files = [
         "main.py",
-        "sms_handler.py", 
-        "a2a_protocol.py",
-        "ai_response_generator.py"
+        "controller/a2a_protocol.py",
+        "controller/ai_response_generator.py", 
+        "controller/sms_handler.py"
     ]
     
     all_exist = True
@@ -60,6 +60,14 @@ def test_file_structure():
         print("✓ config/ folder exists")
     else:
         print("❌ config/ folder missing")
+        all_exist = False
+    
+    # Check if controller folder exists
+    controller_path = Path(__file__).parent.parent / "controller"
+    if controller_path.exists():
+        print("✓ controller/ folder exists")
+    else:
+        print("❌ controller/ folder missing")
         all_exist = False
     
     return all_exist

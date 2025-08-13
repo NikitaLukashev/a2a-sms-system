@@ -15,9 +15,7 @@ from fastapi import FastAPI, HTTPException, Form
 from fastapi.responses import HTMLResponse
 import uvicorn
 
-from a2a_protocol import sms_protocol
-from ai_response_generator import ai_generator
-from sms_handler import sms_handler
+from controller import sms_protocol, ai_generator, sms_handler
 
 # Load environment variables
 load_dotenv()

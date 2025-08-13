@@ -39,7 +39,7 @@ def test_ai_generator():
     """Test the AI response generator"""
     print("\n🤖 Testing AI Response Generator (Mistral Large)...")
     
-    from ai_response_generator import ai_generator
+    from controller.ai_response_generator import ai_generator
     
     # Test response generation
     test_questions = [
@@ -59,7 +59,7 @@ def test_protocol():
     """Test the main protocol"""
     print("\n🔧 Testing SMS Host Protocol...")
     
-    from a2a_protocol import sms_protocol
+    from controller.a2a_protocol import sms_protocol
     
     # Test protocol status
     status = sms_protocol.get_protocol_status()
