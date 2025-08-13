@@ -112,8 +112,6 @@ class RAGPropertyParser:
         
         # Clear any existing vector store first
         if hasattr(self, 'vector_store') and self.vector_store:
-            if hasattr(self.vector_store, '_client'):
-                self.vector_store._client.close()
             self.vector_store = None
         
         # Create new vector store
@@ -137,8 +135,6 @@ class RAGPropertyParser:
         """Alternative database creation method"""
         # Clear any existing ChromaDB instances
         if hasattr(self, 'vector_store') and self.vector_store:
-            if hasattr(self.vector_store, '_client'):
-                self.vector_store._client.close()
             self.vector_store = None
         
         # Create a temporary directory for the database
@@ -182,8 +178,6 @@ class RAGPropertyParser:
         """Reset any existing ChromaDB instances to avoid conflicts"""
         # Clear our vector store instance
         if hasattr(self, 'vector_store') and self.vector_store:
-            if hasattr(self.vector_store, '_client'):
-                self.vector_store._client.close()
             self.vector_store = None
         
         # Try to clear any global ChromaDB instances
