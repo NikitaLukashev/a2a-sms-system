@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.responses import HTMLResponse
 import uvicorn
+from datetime import datetime
 
 from controller import sms_protocol, ai_generator, sms_handler
 
@@ -548,11 +549,138 @@ async def refresh_rag_database():
         return {"message": "Failed to refresh RAG database"}
 
 
+@app.post("/update-rag-from-file")
+async def update_rag_from_file():
+    """Update the RAG vector database from airbnblisting.txt file"""
+    try:
+        # Check if the file exists
+        file_path = "data/airbnblisting.txt"
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="airbnblisting.txt file not found")
+        
+        # Get file modification time
+        file_stat = os.stat(file_path)
+        file_modified = file_stat.st_mtime
+        
+        # Refresh the RAG database
+        success = sms_protocol.refresh_rag_database()
+        
+        if success:
+            return {
+                "message": "RAG database updated successfully from airbnblisting.txt",
+                "file_path": file_path,
+                "file_modified": file_modified,
+                "database_refreshed": True
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to refresh RAG database")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating RAG from file: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
 @app.get("/rag-insights/{query}")
 async def get_rag_insights(query: str):
     """Get RAG insights for a specific query"""
     insights = sms_protocol.get_rag_insights(query)
     return insights
+
+
+@app.get("/file-status/airbnblisting")
+async def get_airbnblisting_status():
+    """Get the status of the airbnblisting.txt file"""
+    try:
+        file_path = "data/airbnblisting.txt"
+        
+        if not os.path.exists(file_path):
+            return {
+                "file_exists": False,
+                "file_path": file_path,
+                "message": "File not found"
+            }
+        
+        # Get file information
+        file_stat = os.stat(file_path)
+        file_size = file_stat.st_size
+        file_modified = file_stat.st_mtime
+        
+        # Get RAG database stats
+        rag_stats = ai_generator.get_rag_stats()
+        
+        return {
+            "file_exists": True,
+            "file_path": file_path,
+            "file_size_bytes": file_size,
+            "file_modified": file_modified,
+            "file_modified_iso": datetime.fromtimestamp(file_modified).isoformat(),
+            "rag_database_stats": rag_stats,
+            "message": "File found and RAG database status retrieved"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting file status: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@app.post("/smart-update-rag")
+async def smart_update_rag():
+    """Smart update: Check if airbnblisting.txt has changed and update RAG if needed"""
+    try:
+        file_path = "data/airbnblisting.txt"
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="airbnblisting.txt file not found")
+        
+        # Get current file modification time
+        file_stat = os.stat(file_path)
+        current_modified = file_stat.st_mtime
+        
+        # Get RAG database stats to check if it needs updating
+        rag_stats = ai_generator.get_rag_stats()
+        
+        # Check if database exists and has content
+        database_needs_update = False
+        if "total_documents" not in rag_stats or rag_stats["total_documents"] == 0:
+            database_needs_update = True
+            reason = "Database is empty"
+        else:
+            reason = "Database exists and has content"
+        
+        # Always update for now (you can add timestamp comparison logic here)
+        if database_needs_update or True:  # Force update for now
+            success = sms_protocol.refresh_rag_database()
+            
+            if success:
+                return {
+                    "message": "RAG database updated successfully",
+                    "file_path": file_path,
+                    "file_modified": current_modified,
+                    "file_modified_iso": datetime.fromtimestamp(current_modified).isoformat(),
+                    "database_updated": True,
+                    "reason": reason,
+                    "new_rag_stats": ai_generator.get_rag_stats()
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Failed to update RAG database")
+        else:
+            return {
+                "message": "RAG database is up to date",
+                "file_path": file_path,
+                "file_modified": current_modified,
+                "file_modified_iso": datetime.fromtimestamp(current_modified).isoformat(),
+                "database_updated": False,
+                "reason": "No update needed",
+                "current_rag_stats": rag_stats
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in smart update: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
 @app.get("/health")
