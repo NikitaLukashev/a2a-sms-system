@@ -95,12 +95,26 @@ open http://localhost:8000
 ### Test the System
 
 ```bash
-# Run comprehensive tests
-python test_system.py
+# Run all tests (recommended)
+python test/run_all_tests.py
 
-# Test specific questions
+# Run individual tests
+python test/test_system.py      # System functionality tests
+python test/test_rag.py         # RAG architecture tests
+
+# Test specific questions via API
 curl -X POST "http://localhost:8000/test-message" \
   -d "message=Do you have WiFi?"
+```
+
+### Test Folder Structure
+
+```
+test/
+├── __init__.py              # Test package initialization
+├── run_all_tests.py         # Test runner (runs all tests)
+├── test_system.py           # System functionality tests
+└── test_rag.py              # RAG architecture tests
 ```
 
 ### Test Message Processing
@@ -309,7 +323,7 @@ MIT License - see LICENSE file for details
 
 - **Issues**: Create GitHub issue
 - **Documentation**: Check this README
-- **Testing**: Use `python test_system.py`
+- **Testing**: Use `python test/run_all_tests.py` (recommended) or `python test/test_system.py`
 - **Logs**: Check Docker logs for errors
 
 ---
