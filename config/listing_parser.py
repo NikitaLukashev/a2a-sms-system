@@ -70,6 +70,9 @@ class RAGPropertyParser:
     def _setup_vector_database(self):
         """Setup or load the vector database"""
         try:
+            # Reset any existing ChromaDB instances first
+            self._reset_chromadb_instances()
+            
             # Create persist directory if it doesn't exist
             self.persist_directory.mkdir(exist_ok=True, parents=True)
             
@@ -125,6 +128,17 @@ class RAGPropertyParser:
             
             # Try to create vector store with error handling
             try:
+                # Clear any existing vector store first
+                if hasattr(self, 'vector_store') and self.vector_store:
+                    try:
+                        if hasattr(self.vector_store, '_client'):
+                            self.vector_store._client.close()
+                        self.vector_store = None
+                        logger.info("Cleared existing vector store instance")
+                    except Exception as e:
+                        logger.warning(f"Could not clear existing vector store: {e}")
+                
+                # Create new vector store
                 self.vector_store = Chroma.from_documents(
                     documents=chunks,
                     embedding=self.embeddings,
@@ -172,44 +186,110 @@ class RAGPropertyParser:
     def _create_database_alternative(self, chunks):
         """Alternative database creation method"""
         try:
-            # Try creating with different ChromaDB settings
-            import chromadb
-            from chromadb.config import Settings
+            # First, try to clear any existing ChromaDB instances
+            if hasattr(self, 'vector_store') and self.vector_store:
+                try:
+                    # Close existing vector store
+                    if hasattr(self.vector_store, '_client'):
+                        self.vector_store._client.close()
+                    self.vector_store = None
+                    logger.info("Cleared existing vector store instance")
+                except Exception as e:
+                    logger.warning(f"Could not clear existing vector store: {e}")
             
-            # Create with more permissive settings
-            settings = Settings(
-                anonymized_telemetry=False,
-                allow_reset=True,
-                is_persistent=True
-            )
+            # Try to create a new ChromaDB instance with a unique path
+            import tempfile
+            import shutil
             
-            # Create client with custom settings
-            client = chromadb.PersistentClient(
-                path=str(self.persist_directory),
-                settings=settings
-            )
+            # Create a temporary directory for the database
+            temp_db_path = Path(tempfile.mkdtemp(prefix="chroma_temp_"))
+            logger.info(f"Using temporary database path: {temp_db_path}")
             
-            # Create collection manually
-            collection = client.create_collection(
-                name="property_info",
-                metadata={"description": "Property information database"}
-            )
-            
-            # Add documents
-            texts = [chunk.page_content for chunk in chunks]
-            metadatas = [chunk.metadata for chunk in chunks]
-            ids = [f"doc_{i}" for i in range(len(chunks))]
-            
-            collection.add(
-                documents=texts,
-                metadatas=metadatas,
-                ids=ids
-            )
-            
-            logger.info("Database created using alternative method")
-            
+            try:
+                # Create vector store in temporary location first
+                temp_vector_store = Chroma.from_documents(
+                    documents=chunks,
+                    embedding=self.embeddings,
+                    persist_directory=str(temp_db_path)
+                )
+                
+                # Now copy the database files to the target location
+                if self.persist_directory.exists():
+                    # Remove existing files
+                    for file_path in self.persist_directory.iterdir():
+                        if file_path.is_file():
+                            file_path.unlink()
+                        elif file_path.is_dir():
+                            shutil.rmtree(file_path)
+                
+                # Copy database files from temp to target
+                for item in temp_db_path.iterdir():
+                    if item.is_file():
+                        shutil.copy2(item, self.persist_directory)
+                    elif item.is_dir():
+                        shutil.copytree(item, self.persist_directory / item.name)
+                
+                # Now create the vector store in the target location
+                self.vector_store = Chroma(
+                    persist_directory=str(self.persist_directory),
+                    embedding_function=self.embeddings
+                )
+                
+                logger.info("Database created using alternative method with file copying")
+                
+                # Clean up temporary directory
+                shutil.rmtree(temp_db_path)
+                
+            except Exception as e:
+                logger.error(f"Alternative method with file copying failed: {e}")
+                
+                # Last resort: try to create in memory only
+                logger.info("Trying in-memory database as last resort...")
+                self._create_in_memory_database(chunks)
+                
         except Exception as e:
             logger.error(f"Alternative database creation also failed: {e}")
+            raise
+    
+    def _reset_chromadb_instances(self):
+        """Reset any existing ChromaDB instances to avoid conflicts"""
+        try:
+            # Clear our vector store instance
+            if hasattr(self, 'vector_store') and self.vector_store:
+                try:
+                    if hasattr(self.vector_store, '_client'):
+                        self.vector_store._client.close()
+                    self.vector_store = None
+                    logger.info("Cleared existing vector store instance")
+                except Exception as e:
+                    logger.warning(f"Could not clear existing vector store: {e}")
+            
+            # Try to clear any global ChromaDB instances
+            try:
+                import chromadb
+                # Force ChromaDB to reset its internal state
+                if hasattr(chromadb, '_reset_client_cache'):
+                    chromadb._reset_client_cache()
+                    logger.info("Reset ChromaDB client cache")
+            except Exception as e:
+                logger.warning(f"Could not reset ChromaDB client cache: {e}")
+                
+        except Exception as e:
+            logger.warning(f"Error during ChromaDB instance reset: {e}")
+    
+    def _create_in_memory_database(self, chunks):
+        """Create an in-memory database as last resort"""
+        try:
+            # Create in-memory vector store
+            self.vector_store = Chroma.from_documents(
+                documents=chunks,
+                embedding=self.embeddings
+            )
+            
+            logger.warning("Created in-memory database - data will not persist between restarts")
+            
+        except Exception as e:
+            logger.error(f"Even in-memory database creation failed: {e}")
             raise
     
     def _collect_documents(self) -> List[Document]:
