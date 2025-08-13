@@ -13,6 +13,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      - ./vector_db:/app/vector_db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

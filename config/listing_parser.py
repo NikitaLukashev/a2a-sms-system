@@ -26,11 +26,16 @@ class RAGPropertyParser:
         # Use absolute paths to avoid permission issues
         self.data_directory = Path(data_directory).resolve()
         
-        # Set persist directory to a subdirectory of the project root
+        # Set persist directory based on environment
         if persist_directory is None:
-            # Get the project root directory (parent of config folder)
-            project_root = Path(__file__).parent.parent
-            self.persist_directory = project_root / "vector_db"
+            # Check if we're in Docker (PYTHONPATH will be /app)
+            if os.getenv('PYTHONPATH') == '/app':
+                # Docker environment - use /app/vector_db
+                self.persist_directory = Path('/app/vector_db')
+            else:
+                # Local environment - use project root
+                project_root = Path(__file__).parent.parent
+                self.persist_directory = project_root / "vector_db"
         else:
             self.persist_directory = Path(persist_directory).resolve()
         

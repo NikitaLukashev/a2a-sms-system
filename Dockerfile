@@ -16,6 +16,9 @@ COPY . .
 # Create data directory for property information
 RUN mkdir -p data
 
+# Create vector database directory with proper permissions
+RUN mkdir -p vector_db && chmod 755 vector_db
+
 # Expose port
 EXPOSE 8000
 
